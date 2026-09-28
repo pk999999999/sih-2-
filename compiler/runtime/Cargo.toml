@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+jocky-ast = { path = "../ast" }
 jocky-ir = { path = "../ir" }
 serde_json.workspace = true
 time.workspace = true

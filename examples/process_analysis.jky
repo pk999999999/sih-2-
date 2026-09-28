@@ -4,6 +4,6 @@ investigation "Process analysis" {
   analyze processes where name contains "powershell"
   report "process-report" {
     include processes
+    include processes_analysis
   }
 }
-

@@ -7,7 +7,7 @@ investigation "Authorized endpoint triage" {
   report "triage-report" {
     include sys
     include processes
+    include processes_analysis
     include connections
   }
 }
-

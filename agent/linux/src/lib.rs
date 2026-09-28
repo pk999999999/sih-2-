@@ -6,7 +6,7 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct LinuxProcess {
     pub pid: u32,
-    pub command: String,
+    pub name: String,
 }
 
 pub fn collect_processes() -> anyhow::Result<Vec<LinuxProcess>> {
@@ -17,11 +17,11 @@ pub fn collect_processes() -> anyhow::Result<Vec<LinuxProcess>> {
         let Some(pid) = name.to_string_lossy().parse::<u32>().ok() else {
             continue;
         };
-        let command = fs::read_to_string(entry.path().join("comm"))
+        let name = fs::read_to_string(entry.path().join("comm"))
             .unwrap_or_default()
             .trim()
             .to_string();
-        processes.push(LinuxProcess { pid, command });
+        processes.push(LinuxProcess { pid, name });
     }
     Ok(processes)
 }

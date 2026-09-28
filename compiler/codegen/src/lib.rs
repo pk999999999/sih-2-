@@ -14,8 +14,8 @@ pub fn emit_pseudo_native(ir: &IrProgram) -> String {
                     "  collect %{binding} = call @{capability}({})\n",
                     args.join(", ")
                 )),
-                IrOp::Filter { source, predicate } => {
-                    out.push_str(&format!("  filter %{source} where {predicate}\n"));
+                IrOp::Filter { source, destination, predicate } => {
+                    out.push_str(&format!("  filter %{destination} = %{source} where {predicate:?}\n"));
                 }
                 IrOp::Report { name, includes } => {
                     out.push_str(&format!("  report \"{name}\" [{}]\n", includes.join(", ")));
@@ -40,4 +40,3 @@ pub fn emit_llvm_ir(ir: &IrProgram) -> String {
 pub fn emit_llvm_ir(_ir: &IrProgram) -> String {
     "; LLVM backend disabled in this build. Enable the `llvm` feature and link Inkwell/LLVM in a full toolchain environment.\n".into()
 }
-

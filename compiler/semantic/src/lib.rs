@@ -34,6 +34,10 @@ pub fn analyze(program: &Program) -> Result<(), SemanticError> {
                     if !bindings.contains(source) {
                         return Err(SemanticError::UnknownBinding(source.clone()));
                     }
+                    let destination = format!("{source}_analysis");
+                    if !bindings.insert(destination.clone()) {
+                        return Err(SemanticError::DuplicateBinding(destination));
+                    }
                 }
                 Statement::Report { name: _, includes } => {
                     for include in includes {

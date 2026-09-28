@@ -1,4 +1,4 @@
-use jocky_ast::{Program, Statement};
+use jocky_ast::{Predicate, Program, Statement};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,7 +22,8 @@ pub enum IrOp {
     },
     Filter {
         source: String,
-        predicate: String,
+        destination: String,
+        predicate: Predicate,
     },
     Report {
         name: String,
@@ -49,7 +50,8 @@ pub fn lower(program: &Program) -> IrProgram {
                         },
                         Statement::Analyze { source, predicate } => IrOp::Filter {
                             source: source.clone(),
-                            predicate: format!("{predicate:?}"),
+                            destination: format!("{source}_analysis"),
+                            predicate: predicate.clone(),
                         },
                         Statement::Report { name, includes } => IrOp::Report {
                             name: name.clone(),
@@ -65,4 +67,3 @@ pub fn lower(program: &Program) -> IrProgram {
 pub fn to_json(ir: &IrProgram) -> serde_json::Result<String> {
     serde_json::to_string_pretty(ir)
 }
-
