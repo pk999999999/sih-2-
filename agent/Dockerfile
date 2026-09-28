@@ -2,6 +2,7 @@ FROM rust:slim AS build
 WORKDIR /src
 COPY Cargo.toml ./
 COPY compiler ./compiler
+COPY stdlib ./stdlib
 COPY agent ./agent
 RUN cargo build --release -p jocky-agent
 
