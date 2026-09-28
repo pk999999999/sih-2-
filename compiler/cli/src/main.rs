@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<()> {
             let program = load_checked(&file)?;
             let ir = jocky_ir::lower(&program);
             let mut runtime = jocky_runtime::Runtime::default();
-            println!("{}", serde_json::to_string_pretty(&runtime.execute(&ir))?);
+            println!("{}", serde_json::to_string_pretty(&runtime.execute(&ir)?)?);
         }
     }
     Ok(())

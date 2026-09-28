@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use jocky_ast::{Argument, Literal, Predicate};
+use anyhow::{bail, Context, Result};
+use jocky_ast::{Argument, Literal, Predicate, Target};
 use jocky_ir::{IrOp, IrProgram};
 use serde_json::{json, Value};
 use time::OffsetDateTime;
@@ -8,52 +10,72 @@ use time::OffsetDateTime;
 #[derive(Debug, Default)]
 pub struct Runtime {
     bindings: BTreeMap<String, Value>,
+    reports: Vec<Value>,
 }
 
 impl Runtime {
-    pub fn execute(&mut self, ir: &IrProgram) -> Value {
-        let mut reports = Vec::new();
+    pub fn execute(&mut self, ir: &IrProgram) -> Result<Value> {
+        self.reports.clear();
         for investigation in &ir.investigations {
-            self.bindings.clear();
+            self.begin(&investigation.target)?;
             for op in &investigation.ops {
-                match op {
-                    IrOp::Collect {
-                        binding,
-                        capability,
-                        args,
-                    } => {
-                        let resolved = args.iter().map(|arg| match arg {
-                            Argument::Literal(Literal::String(s)) => json!(s),
-                            Argument::Literal(Literal::Integer(i)) => json!(i),
-                            Argument::Literal(Literal::Boolean(b)) => json!(b),
-                            Argument::Binding(name) => self.bindings.get(name).cloned().unwrap_or(Value::Null),
-                        }).collect::<Vec<_>>();
-                        let value = jocky_stdlib::invoke(capability, &resolved)
-                            .unwrap_or_else(|error| json!({"error": error.to_string()}));
-                        self.bindings.insert(binding.clone(), value);
-                    }
-                    IrOp::Filter { source, destination, predicate } => {
-                        let value = self.bindings.get(source).cloned().unwrap_or(Value::Null);
-                        self.bindings.insert(destination.clone(), filter_rows(&value, predicate));
-                    }
-                    IrOp::Report { name, includes } => {
-                        let mut included = BTreeMap::new();
-                        for include in includes {
-                            included.insert(
-                                include.clone(),
-                                self.bindings.get(include).cloned().unwrap_or(Value::Null),
-                            );
-                        }
-                        reports.push(json!({
-                            "name": name,
-                            "generated_at": OffsetDateTime::now_utc().to_string(),
-                            "evidence": included
-                        }));
-                    }
-                }
+                self.execute_op(op).with_context(|| format!("investigation {}", investigation.title))?;
             }
         }
-        json!({ "reports": reports })
+        Ok(self.output())
+    }
+
+    pub fn begin(&mut self, target: &Target) -> Result<()> {
+        let hostname = jocky_stdlib::system::info()?
+            .get("hostname").and_then(Value::as_str).unwrap_or("").to_string();
+        match target {
+            Target::Host(id) if id.eq_ignore_ascii_case("localhost")
+                || id == "127.0.0.1" || id.eq_ignore_ascii_case(&hostname) => {}
+            Target::Host(id) => bail!("host {id} is not local; use an authorized agent job"),
+            Target::Agent(id) => bail!("agent {id} cannot run through the local CLI"),
+        }
+        self.bindings.clear();
+        Ok(())
+    }
+
+    pub fn execute_op(&mut self, op: &IrOp) -> Result<()> {
+        match op {
+            IrOp::Collect { binding, capability, args } => {
+                let resolved = args.iter().map(|arg| match arg {
+                    Argument::Literal(Literal::String(s)) => Ok(json!(s)),
+                    Argument::Literal(Literal::Integer(i)) => Ok(json!(i)),
+                    Argument::Literal(Literal::Boolean(b)) => Ok(json!(b)),
+                    Argument::Binding(name) => self.bindings.get(name).cloned()
+                        .with_context(|| format!("unknown binding {name}")),
+                }).collect::<Result<Vec<_>>>()?;
+                let value = jocky_stdlib::invoke(capability, &resolved)
+                    .with_context(|| format!("collect {capability} as {binding}"))?;
+                self.bindings.insert(binding.clone(), value);
+            }
+            IrOp::Filter { source, destination, predicate } => {
+                let value = self.bindings.get(source)
+                    .with_context(|| format!("unknown binding {source}"))?;
+                self.bindings.insert(destination.clone(), filter_rows(value, predicate));
+            }
+            IrOp::Report { name, includes } => {
+                let mut evidence = BTreeMap::new();
+                for include in includes {
+                    let value = self.bindings.get(include)
+                        .with_context(|| format!("unknown binding {include}"))?;
+                    evidence.insert(include.clone(), value.clone());
+                }
+                self.reports.push(json!({
+                    "name": name,
+                    "generated_at": OffsetDateTime::now_utc().to_string(),
+                    "evidence": evidence
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn output(&self) -> Value {
+        json!({ "reports": self.reports })
     }
 }
 
@@ -79,7 +101,7 @@ fn filter_rows(value: &Value, predicate: &Predicate) -> Value {
         Value::Array(rows) => Value::Array(rows.iter().filter(|row| matches(row)).cloned().collect()),
         Value::Object(map) => {
             let mut result = map.clone();
-            for key in ["processes", "connections"] {
+            for key in ["processes", "connections", "events", "lines", "modules"] {
                 if let Some(Value::Array(rows)) = map.get(key) {
                     result.insert(key.to_string(), Value::Array(rows.iter().filter(|row| matches(row)).cloned().collect()));
                     return Value::Object(result);
@@ -91,22 +113,57 @@ fn filter_rows(value: &Value, predicate: &Predicate) -> Value {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn jocky_runtime_execute_plan(plan: *const u8, len: usize) -> i32 {
-    let result = std::panic::catch_unwind(|| -> Result<(), Box<dyn std::error::Error>> {
-        if plan.is_null() || len > 16 * 1024 * 1024 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid JOCKY plan buffer").into());
+fn ffi_step<F>(session: *mut Runtime, data: *const u8, len: usize, step: F) -> i32
+where F: FnOnce(&mut Runtime, &[u8]) -> Result<()> {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if session.is_null() || data.is_null() || len > 1024 * 1024 {
+            bail!("invalid JOCKY runtime input");
         }
-        let bytes = unsafe { std::slice::from_raw_parts(plan, len) };
-        let ir: IrProgram = serde_json::from_slice(bytes)?;
-        let output = Runtime::default().execute(&ir);
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        Ok(())
-    });
+        let runtime = unsafe { &mut *session };
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) };
+        step(runtime, bytes)
+    }));
     match result {
         Ok(Ok(())) => 0,
-        Ok(Err(error)) => { eprintln!("jocky runtime: {error}"); 1 },
+        Ok(Err(error)) => { eprintln!("jocky runtime: {error:#}"); 1 },
         Err(_) => { eprintln!("jocky runtime panic"); 2 },
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn jocky_runtime_new() -> *mut Runtime {
+    Box::into_raw(Box::new(Runtime::default()))
+}
+
+#[no_mangle]
+pub extern "C" fn jocky_runtime_begin(session: *mut Runtime, data: *const u8, len: usize) -> i32 {
+    ffi_step(session, data, len, |runtime, bytes| runtime.begin(&serde_json::from_slice::<Target>(bytes)?))
+}
+
+#[no_mangle]
+pub extern "C" fn jocky_runtime_op(session: *mut Runtime, data: *const u8, len: usize) -> i32 {
+    ffi_step(session, data, len, |runtime, bytes| runtime.execute_op(&serde_json::from_slice::<IrOp>(bytes)?))
+}
+
+#[no_mangle]
+pub extern "C" fn jocky_runtime_finish(session: *mut Runtime) -> i32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if session.is_null() { bail!("null JOCKY runtime session"); }
+        let runtime = unsafe { &*session };
+        println!("{}", serde_json::to_string_pretty(&runtime.output())?);
+        Ok::<(), anyhow::Error>(())
+    }));
+    match result {
+        Ok(Ok(())) => 0,
+        Ok(Err(error)) => { eprintln!("jocky runtime: {error:#}"); 1 },
+        Err(_) => { eprintln!("jocky runtime panic"); 2 },
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn jocky_runtime_free(session: *mut Runtime) {
+    if !session.is_null() {
+        drop(unsafe { Box::from_raw(session) });
     }
 }
 
@@ -116,11 +173,24 @@ mod tests {
 
     #[test]
     fn filters_matching_process_names() {
-        let input = json!([
-            {"pid": 1, "name": "powershell.exe"},
-            {"pid": 2, "name": "explorer.exe"}
-        ]);
+        let input = json!([{"pid":1,"name":"powershell.exe"},{"pid":2,"name":"explorer.exe"}]);
         let predicate = Predicate::Contains { field: "name".into(), value: "PowerShell".into() };
-        assert_eq!(filter_rows(&input, &predicate), json!([{"pid": 1, "name": "powershell.exe"}]));
+        assert_eq!(filter_rows(&input, &predicate), json!([{"pid":1,"name":"powershell.exe"}]));
+    }
+
+    #[test]
+    fn rejects_nonlocal_target() {
+        assert!(Runtime::default().begin(&Target::Agent("remote".into())).is_err());
+    }
+
+    #[test]
+    fn collection_errors_fail_execution() {
+        let mut runtime = Runtime::default();
+        runtime.begin(&Target::Host("localhost".into())).unwrap();
+        let op = IrOp::Collect {
+            binding: "file".into(), capability: "filesystem.hash".into(),
+            args: vec![Argument::Literal(Literal::String("missing-file".into()))],
+        };
+        assert!(runtime.execute_op(&op).is_err());
     }
 }

@@ -1,4 +1,4 @@
-use jocky_ast::{Argument, Predicate, Program, Statement};
+use jocky_ast::{Argument, Predicate, Program, Statement, Target};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -9,7 +9,7 @@ pub struct IrProgram {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IrInvestigation {
     pub title: String,
-    pub target: String,
+    pub target: Target,
     pub ops: Vec<IrOp>,
 }
 
@@ -38,7 +38,7 @@ pub fn lower(program: &Program) -> IrProgram {
             .iter()
             .map(|investigation| IrInvestigation {
                 title: investigation.title.clone(),
-                target: format!("{:?}", investigation.target),
+                target: investigation.target.clone(),
                 ops: investigation
                     .statements
                     .iter()
