@@ -9,6 +9,7 @@ members = [
   "compiler/codegen",
   "compiler/runtime",
   "compiler/cli",
+  "compiler/native-runner",
   "stdlib",
   "agent/common",
   "agent/windows",

@@ -24,8 +24,6 @@ enum Command {
         file: PathBuf,
         #[arg(short, long)]
         output: PathBuf,
-        #[arg(long)]
-        runtime_lib: Option<PathBuf>,
     },
     Run { file: PathBuf },
 }
@@ -53,52 +51,29 @@ fn main() -> anyhow::Result<()> {
             let mut runtime = jocky_runtime::Runtime::default();
             println!("{}", serde_json::to_string_pretty(&runtime.execute(&ir)?)?);
         }
-        Command::Build { file, output, runtime_lib } => {
+        Command::Build { file, output } => {
             let program = load_checked(&file)?;
             let ir = jocky_ir::lower(&program);
             let llvm = jocky_codegen::emit_llvm_ir(&ir)?;
             let llvm_path = output.with_extension("ll");
+            let object_path = output.with_extension(if cfg!(target_os = "windows") { "obj" } else { "o" });
             fs::write(&llvm_path, llvm).with_context(|| format!("write {}", llvm_path.display()))?;
             let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-            let mut native_libs = Vec::new();
-            let library = match runtime_lib {
-                Some(path) => path,
-                None => {
-                    let target = std::env::var_os("CARGO_TARGET_DIR")
-                        .map(PathBuf::from).unwrap_or_else(|| root.join("target"));
-                    let name = if cfg!(target_os = "windows") { "jocky_runtime.lib" } else { "libjocky_runtime.a" };
-                    let path = target.join("release").join(name);
-                    if cfg!(target_os = "windows") {
-                        let output = ProcessCommand::new("cargo")
-                            .args(["rustc", "--release", "-p", "jocky-runtime", "--lib", "--manifest-path"])
-                            .arg(root.join("Cargo.toml"))
-                            .args(["--", "--print", "native-static-libs"])
-                            .output().context("build JOCKY runtime and query native libraries")?;
-                        anyhow::ensure!(output.status.success(), "runtime build failed: {}", String::from_utf8_lossy(&output.stderr));
-                        let diagnostics = String::from_utf8_lossy(&output.stderr);
-                        native_libs = diagnostics.lines()
-                            .filter_map(|line| line.split_once("native-static-libs:").map(|(_, libs)| libs))
-                            .flat_map(str::split_whitespace).map(str::to_string).collect();
-                        anyhow::ensure!(!native_libs.is_empty(), "rustc did not report native static libraries");
-                    } else if !path.exists() {
-                        let status = ProcessCommand::new("cargo")
-                            .args(["build", "--release", "-p", "jocky-runtime", "--manifest-path"])
-                            .arg(root.join("Cargo.toml"))
-                            .status().context("build JOCKY runtime")?;
-                        anyhow::ensure!(status.success(), "runtime build failed");
-                    }
-                    path
-                }
-            };
-            anyhow::ensure!(library.is_file(), "runtime library not found: {}", library.display());
-            let mut command = ProcessCommand::new("clang");
-            command.arg(&llvm_path).arg(&library).arg("-o").arg(&output);
-            command.args(native_libs);
-            if cfg!(target_os = "linux") {
-                command.args(["-ldl", "-lpthread", "-lm"]);
-            }
-            let status = command.status().context("invoke clang")?;
+            let status = ProcessCommand::new("clang")
+                .arg("-c").arg(&llvm_path).arg("-o").arg(&object_path)
+                .status().context("compile LLVM IR with clang")?;
+            anyhow::ensure!(status.success(), "LLVM object compilation failed");
+            let object_path = object_path.canonicalize()?;
+            let status = ProcessCommand::new("cargo")
+                .args(["build", "--release", "-p", "jocky-native-runner", "--manifest-path"])
+                .arg(root.join("Cargo.toml"))
+                .env("JOCKY_OBJECT_PATH", &object_path)
+                .status().context("link JOCKY native runner")?;
             anyhow::ensure!(status.success(), "native link failed");
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from).unwrap_or_else(|| root.join("target"));
+            let binary = target.join("release").join(if cfg!(target_os = "windows") { "jocky-native-runner.exe" } else { "jocky-native-runner" });
+            fs::copy(&binary, &output).with_context(|| format!("copy native executable to {}", output.display()))?;
             println!("{}", output.display());
         }
     }

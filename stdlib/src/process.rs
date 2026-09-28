@@ -38,14 +38,24 @@ pub fn modules(pid: u32) -> Result<Value> {
 #[cfg(target_os = "linux")]
 fn linux_modules(pid: u32) -> Result<Value> {
     use std::collections::BTreeSet;
-    use std::io::{BufRead, BufReader, Read};
+    use std::io::Read;
 
     let path = format!("/proc/{pid}/maps");
     let file = std::fs::File::open(&path)?;
-    let reader = BufReader::new(file.take(4 * 1024 * 1024));
+    let mut bytes = Vec::new();
+    file.take(4 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+    let byte_truncated = bytes.len() > 4 * 1024 * 1024;
+    if byte_truncated {
+        bytes.truncate(4 * 1024 * 1024);
+        if let Some(last_newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
+            bytes.truncate(last_newline + 1);
+        } else { bytes.clear(); }
+    }
+    let content = String::from_utf8_lossy(&bytes);
     let mut paths = BTreeSet::new();
-    for line in reader.lines().take(20_000) {
-        let line = line?;
+    let mut lines = content.lines();
+    let mut count_truncated = false;
+    for line in lines.by_ref().take(20_000) {
         let mut fields = line.split_whitespace();
         let _range = fields.next();
         let executable = fields.next().is_some_and(|permissions| permissions.contains('x'));
@@ -57,8 +67,9 @@ fn linux_modules(pid: u32) -> Result<Value> {
         }
         if paths.len() >= 4096 { break; }
     }
+    count_truncated |= lines.next().is_some();
     let timestamp = observed_at();
-    Ok(json!({"pid": pid, "modules": paths.into_iter().map(|path| json!({"path": path, "timestamp": timestamp})).collect::<Vec<_>>(), "source": path}))
+    Ok(json!({"pid": pid, "modules": paths.into_iter().map(|path| json!({"path": path, "timestamp": timestamp})).collect::<Vec<_>>(), "source": path, "truncated": byte_truncated || count_truncated}))
 }
 
 #[cfg(target_os = "windows")]
@@ -79,14 +90,17 @@ fn windows_modules(pid: u32) -> Result<Value> {
             return Err(std::io::Error::last_os_error().into());
         }
         let mut modules = Vec::new();
+        let mut truncated = false;
         let timestamp = observed_at();
         loop {
             let end = entry.szExePath.iter().position(|unit| *unit == 0).unwrap_or(entry.szExePath.len());
             let path = String::from_utf16_lossy(&entry.szExePath[..end]);
             modules.push(json!({"path": path, "size": entry.modBaseSize, "timestamp": timestamp}));
-            if modules.len() >= 4096 || unsafe { Module32NextW(snapshot, &mut entry) } == 0 { break; }
+            let more = unsafe { Module32NextW(snapshot, &mut entry) } != 0;
+            if modules.len() >= 4096 { truncated = more; break; }
+            if !more { break; }
         }
-        Ok(json!({"pid": pid, "modules": modules, "source": "toolhelp32"}))
+        Ok(json!({"pid": pid, "modules": modules, "source": "toolhelp32", "truncated": truncated}))
     })();
     unsafe { CloseHandle(snapshot) };
     result

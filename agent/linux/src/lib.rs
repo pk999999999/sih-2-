@@ -39,6 +39,7 @@ pub fn collect_system_info() -> serde_json::Value {
 
 pub fn collect_network_connections() -> anyhow::Result<serde_json::Value> {
     let mut rows = Vec::new();
+    let mut truncated = false;
     for (protocol, file) in [
         ("tcp", "/proc/net/tcp"),
         ("tcp6", "/proc/net/tcp6"),
@@ -50,7 +51,8 @@ pub fn collect_network_connections() -> anyhow::Result<serde_json::Value> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error).with_context(|| format!("read {file}")),
         };
-        for line in contents.lines().skip(1).take(2000) {
+        let mut lines = contents.lines().skip(1);
+        for line in lines.by_ref().take(2000) {
             let columns: Vec<_> = line.split_whitespace().collect();
             if columns.len() > 3 {
                 rows.push(serde_json::json!({
@@ -64,8 +66,9 @@ pub fn collect_network_connections() -> anyhow::Result<serde_json::Value> {
                 }));
             }
         }
+        truncated |= lines.next().is_some();
     }
-    Ok(serde_json::json!({"connections": rows, "source": "/proc/net"}))
+    Ok(serde_json::json!({"connections": rows, "source": "/proc/net", "truncated": truncated}))
 }
 
 fn decode_endpoint(raw: &str) -> Option<String> {

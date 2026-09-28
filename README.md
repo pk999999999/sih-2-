@@ -93,7 +93,7 @@ cargo run -p jocky-cli -- build examples/stdlib_investigation.jky --output jocky
 ./jocky-native
 ```
 
-`build` emits a sibling `.ll` file, builds the Rust runtime library if needed, and invokes Clang. On Windows, use an `.exe` output path and a Clang/MSVC toolchain. `run` and native binaries execute only a local `host("localhost")` (or matching host name) target; an `agent(...)` target is for the separate backend job path and is rejected by the local CLI.
+`build` emits sibling `.ll` and object files, compiles the LLVM module with Clang, and lets Cargo link it with the Rust runtime. On Windows, use an `.exe` output path and a Clang/MSVC toolchain. `run` and native binaries execute only a local `host("localhost")` (or matching host name) target; an `agent(...)` target is for the separate backend job path and is rejected by the local CLI.
 
 For file metadata, hashing, or file-based log reads, set `JOCKY_READ_ROOTS` to explicitly authorized directories (platform path-list syntax). Reads outside those roots are rejected. `filesystem` rejects non-regular files and files over 64 MiB; file log output is bounded to 1 MiB and 1,000 lines. OS permissions remain authoritative. The local DSL runtime supports all documented stdlib calls; the remote agent job API currently exposes only system, process, and network collection.
 

@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::process::{Command, Stdio};
 
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
@@ -36,20 +37,35 @@ pub fn syslog(path: &str) -> Result<Value> {
     Ok(json!({"path": content["path"], "events": events, "truncated": content["truncated"]}))
 }
 
+fn bounded_command(command: &mut Command, max_bytes: u64) -> Result<Vec<u8>> {
+    let mut child = command.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+    let mut bytes = Vec::new();
+    let read_result = child.stdout.take().expect("piped stdout")
+        .take(max_bytes + 1).read_to_end(&mut bytes);
+    if let Err(error) = read_result {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error.into());
+    }
+    if bytes.len() as u64 > max_bytes {
+        let _ = child.kill();
+        let _ = child.wait();
+        bail!("log command output exceeds {} bytes", max_bytes);
+    }
+    if !child.wait()?.success() { bail!("read-only log command failed"); }
+    Ok(bytes)
+}
+
 #[cfg(target_os = "linux")]
 pub fn journal() -> Result<Value> {
-    use std::process::Command;
     use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
-    let output = Command::new("journalctl")
-        .args(["--no-pager", "--output=json", "-n", "100"])
-        .output()?;
-    if !output.status.success() {
-        bail!("journalctl failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
-    if output.stdout.len() > 2 * 1024 * 1024 { bail!("journal output exceeds 2 MiB limit"); }
+    let bytes = bounded_command(
+        Command::new("journalctl").args(["--no-pager", "--output=json", "-n", "100"]),
+        2 * 1024 * 1024,
+    )?;
     let mut events = Vec::new();
-    for line in output.stdout.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()) {
+    for line in bytes.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()) {
         let entry: Value = serde_json::from_slice(line)?;
         let micros = entry.get("__REALTIME_TIMESTAMP")
             .and_then(Value::as_str).and_then(|value| value.parse::<i128>().ok());
@@ -72,19 +88,14 @@ pub fn journal() -> Result<Value> { bail!("logs.journal is supported on Linux on
 
 #[cfg(target_os = "windows")]
 pub fn windows_events(channel: &str) -> Result<Value> {
-    use std::process::Command;
-
     if !["System", "Application", "Security"].contains(&channel) {
         bail!("unsupported Windows event channel");
     }
-    let output = Command::new("wevtutil")
-        .args(["qe", channel, "/c:100", "/f:xml"])
-        .output()?;
-    if !output.status.success() {
-        bail!("wevtutil query failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
-    if output.stdout.len() > 2 * 1024 * 1024 { bail!("event output exceeds 2 MiB limit"); }
-    let text = decode_windows_output(&output.stdout)?;
+    let bytes = bounded_command(
+        Command::new("wevtutil").args(["qe", channel, "/c:100", "/f:xml"]),
+        2 * 1024 * 1024,
+    )?;
+    let text = decode_windows_output(&bytes)?;
     let events = parse_windows_events(&text)?;
     let truncated = events.len() >= 100;
     Ok(json!({"channel": channel, "events": events, "source": "wevtutil", "truncated": truncated}))

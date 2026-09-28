@@ -40,7 +40,7 @@ pub fn emit_llvm_ir(ir: &IrProgram) -> serde_json::Result<String> {
     module.push_str("declare i32 @jocky_runtime_op(ptr, ptr, i64)\n");
     module.push_str("declare i32 @jocky_runtime_finish(ptr)\n");
     module.push_str("declare void @jocky_runtime_free(ptr)\n");
-    module.push_str("define i32 @main() {\nentry:\n  %session = call ptr @jocky_runtime_new()\n  %missing = icmp eq ptr %session, null\n");
+    module.push_str("define i32 @jocky_entry() {\nentry:\n  %session = call ptr @jocky_runtime_new()\n  %missing = icmp eq ptr %session, null\n");
     let first = if steps.is_empty() { "done".to_string() } else { "step0".to_string() };
     module.push_str(&format!("  br i1 %missing, label %allocation_failed, label %{first}\n"));
     for (index, (function, bytes)) in steps.iter().enumerate() {

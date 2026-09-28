@@ -31,8 +31,10 @@ pub fn collect_network_connections() -> anyhow::Result<serde_json::Value> {
         anyhow::bail!("netstat collection failed");
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    let rows = text.lines().filter_map(parse_netstat_row).take(2000).collect::<Vec<_>>();
-    Ok(serde_json::json!({"connections": rows, "source": "netstat -ano"}))
+    let mut rows = text.lines().filter_map(parse_netstat_row).take(2001).collect::<Vec<_>>();
+    let truncated = rows.len() > 2000;
+    rows.truncate(2000);
+    Ok(serde_json::json!({"connections": rows, "source": "netstat -ano", "truncated": truncated}))
 }
 
 fn parse_netstat_row(line: &str) -> Option<serde_json::Value> {
