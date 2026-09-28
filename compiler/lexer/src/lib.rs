@@ -83,11 +83,20 @@ pub fn lex(source: &str) -> Result<Vec<SpannedToken>, LexError> {
     Ok(tokens)
 }
 
-fn unquote(raw: &str) -> String {
-    raw.trim_matches('"')
-        .replace("\\\"", "\"")
-        .replace("\\n", "\n")
-        .replace("\\t", "\t")
+fn unquote(raw: &str) -> Option<String> {
+    let mut chars = raw[1..raw.len() - 1].chars();
+    let mut value = String::new();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            value.push(ch);
+            continue;
+        }
+        value.push(match chars.next()? {
+            '"' => '"', '\\' => '\\', 'n' => '\n', 'r' => '\r', 't' => '\t',
+            _ => return None,
+        });
+    }
+    Some(value)
 }
 
 #[cfg(test)]
@@ -100,5 +109,11 @@ mod tests {
         assert!(matches!(tokens[0].token, Token::Investigation));
         assert!(tokens.iter().any(|t| matches!(t.token, Token::Host)));
     }
-}
 
+    #[test]
+    fn decodes_escaped_paths_and_rejects_invalid_escape() {
+        let tokens = lex(r#""C:\\Windows\\System32""#).unwrap();
+        assert_eq!(tokens[0].token, Token::String(r"C:\Windows\System32".into()));
+        assert!(lex(r#""bad\q""#).is_err());
+    }
+}

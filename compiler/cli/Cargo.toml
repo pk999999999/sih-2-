@@ -11,6 +11,7 @@ clap.workspace = true
 jocky-ast = { path = "../ast" }
 jocky-codegen = { path = "../codegen" }
 jocky-ir = { path = "../ir" }
+jocky-lexer = { path = "../lexer" }
 jocky-parser = { path = "../parser" }
 jocky-runtime = { path = "../runtime" }
 jocky-semantic = { path = "../semantic" }

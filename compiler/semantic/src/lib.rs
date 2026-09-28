@@ -13,9 +13,14 @@ pub enum SemanticError {
     UnknownBinding(String),
     #[error("invalid arguments for {0}.{1}: {2}")]
     InvalidArguments(String, String, &'static str),
+    #[error("a JOCKY program must contain at least one investigation")]
+    EmptyProgram,
 }
 
 pub fn analyze(program: &Program) -> Result<(), SemanticError> {
+    if program.investigations.is_empty() {
+        return Err(SemanticError::EmptyProgram);
+    }
     for investigation in &program.investigations {
         let mut bindings = HashSet::new();
         for statement in &investigation.statements {
@@ -50,8 +55,11 @@ pub fn analyze(program: &Program) -> Result<(), SemanticError> {
 
 fn validate_call(call: &ForensicCall, bindings: &HashSet<String>) -> Result<(), SemanticError> {
     let expected = match (call.namespace.as_str(), call.function.as_str()) {
-        ("system", "info") | ("process", "list") | ("network", "connections") => 0,
+        ("system", "info") | ("process", "list") | ("network", "connections")
+        | ("logs", "journal") => 0,
+        ("process", "modules") => 1,
         ("filesystem", "metadata") | ("filesystem", "hash") | ("logs", "read")
+        | ("logs", "syslog") | ("logs", "windows_events")
         | ("hashing", "sha256") | ("timeline", "build") | ("reporting", "summary") => 1,
         _ => return Err(SemanticError::UnsafeCall(
             call.namespace.clone(),
@@ -62,11 +70,13 @@ fn validate_call(call: &ForensicCall, bindings: &HashSet<String>) -> Result<(), 
         return Err(SemanticError::InvalidArguments(call.namespace.clone(), call.function.clone(), "wrong argument count"));
     }
     match (call.namespace.as_str(), call.function.as_str(), call.args.first()) {
+        ("process", "modules", Some(Argument::Literal(Literal::Integer(pid))))
+            if *pid > 0 && *pid <= u32::MAX as i64 => Ok(()),
         ("filesystem" | "logs" | "hashing", _, Some(Argument::Literal(Literal::String(_)))) => Ok(()),
         ("timeline" | "reporting", _, Some(Argument::Binding(name))) => {
             if bindings.contains(name) { Ok(()) } else { Err(SemanticError::UnknownBinding(name.clone())) }
         }
-        ("system" | "process" | "network", _, None) => Ok(()),
+        ("system" | "process" | "network" | "logs", _, None) => Ok(()),
         _ => Err(SemanticError::InvalidArguments(call.namespace.clone(), call.function.clone(), "expected a string literal or prior binding")),
     }
 }
@@ -121,5 +131,14 @@ mod tests {
         assert_eq!(analyze(&program), Err(SemanticError::UnknownBinding("missing".into())));
         let program = jocky_parser::parse_program(r#"investigation "x" { target host("h") collect filesystem.hash(1) as digest }"#).unwrap();
         assert!(matches!(analyze(&program), Err(SemanticError::InvalidArguments(..))));
+        let program = jocky_parser::parse_program(r#"investigation "x" { target host("localhost") collect process.modules(0) as modules }"#).unwrap();
+        assert!(matches!(analyze(&program), Err(SemanticError::InvalidArguments(..))));
+        let program = jocky_parser::parse_program(r#"investigation "x" { target host("localhost") collect process.modules(123) as modules collect logs.journal() as journal }"#).unwrap();
+        assert!(analyze(&program).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_program() {
+        assert_eq!(analyze(&Program { investigations: vec![] }), Err(SemanticError::EmptyProgram));
     }
 }

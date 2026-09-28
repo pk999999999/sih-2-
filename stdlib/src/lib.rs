@@ -14,10 +14,18 @@ pub fn invoke(capability: &str, args: &[Value]) -> Result<Value> {
     match (capability, args) {
         ("system.info", []) => system::info(),
         ("process.list", []) => process::list(),
+        ("process.modules", [Value::Number(pid)]) => {
+            let pid = pid.as_u64().filter(|pid| *pid > 0 && *pid <= u32::MAX as u64)
+                .ok_or_else(|| anyhow::anyhow!("process.modules requires a positive process ID"))?;
+            process::modules(pid as u32)
+        }
         ("network.connections", []) => network::connections(),
         ("filesystem.metadata", [Value::String(path)]) => filesystem::metadata(path),
         ("filesystem.hash", [Value::String(path)]) => filesystem::hash(path),
         ("logs.read", [Value::String(path)]) => logs::read(path),
+        ("logs.syslog", [Value::String(path)]) => logs::syslog(path),
+        ("logs.journal", []) => logs::journal(),
+        ("logs.windows_events", [Value::String(channel)]) => logs::windows_events(channel),
         ("hashing.sha256", [Value::String(value)]) => Ok(hashing::sha256(value)),
         ("timeline.build", [value]) => timeline::build(value),
         ("reporting.summary", [value]) => reporting::summary(value),

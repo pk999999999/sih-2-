@@ -8,3 +8,6 @@ repository.workspace = true
 [dependencies]
 jocky-ir = { path = "../ir" }
 serde_json.workspace = true
+
+[dev-dependencies]
+jocky-ast = { path = "../ast" }
