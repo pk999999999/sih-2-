@@ -1,5 +1,4 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::Read;
 
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
@@ -7,11 +6,23 @@ use serde_json::{json, Value};
 use crate::filesystem::checked_file;
 
 pub fn read(path: &str) -> Result<Value> {
-    let (path, _) = checked_file(path)?;
-    let file = File::open(&path)?;
-    let reader = BufReader::new(file.take(1024 * 1024));
-    let lines = reader.lines().take(1000).collect::<std::io::Result<Vec<_>>>()?;
-    let truncated = lines.len() == 1000;
+    const MAX_LOG_BYTES: u64 = 1024 * 1024;
+    let (path, file, metadata) = checked_file(path)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_LOG_BYTES).read_to_end(&mut bytes)?;
+    let byte_truncated = metadata.len() > bytes.len() as u64;
+    if byte_truncated && !bytes.ends_with(b"\n") {
+        if let Some(last_newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
+            bytes.truncate(last_newline + 1);
+        } else {
+            bytes.clear();
+        }
+    }
+    let text = String::from_utf8(bytes)?;
+    let mut lines = text.lines().take(1001).map(str::to_string).collect::<Vec<_>>();
+    let line_truncated = lines.len() > 1000;
+    lines.truncate(1000);
+    let truncated = byte_truncated || line_truncated;
     Ok(json!({"path": path, "lines": lines, "truncated": truncated}))
 }
 
@@ -101,7 +112,7 @@ fn parse_windows_events(text: &str) -> Result<Vec<Value>> {
     let wrapped = format!("<Events>{body}</Events>");
     let document = roxmltree::Document::parse(&wrapped)?;
     let mut events = Vec::new();
-    for event in document.root_element().children().filter(|node| node.has_tag_name("Event")) {
+    for event in document.root_element().descendants().filter(|node| node.has_tag_name("Event")) {
         let system = event.children().find(|node| node.has_tag_name("System"));
         let field = |name| system.and_then(|node| node.children().find(|child| child.has_tag_name(name)));
         let event_id = field("EventID").and_then(|node| node.text()).and_then(|text| text.parse::<u32>().ok());
@@ -120,7 +131,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn parses_event_xml() {
-        let xml = r#"<Event><System><Provider Name="Test"/><EventID>42</EventID><TimeCreated SystemTime="2026-01-01T00:00:00Z"/></System><EventData><Data>value</Data></EventData></Event>"#;
+        let xml = r#"<Events><Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><Provider Name="Test"/><EventID>42</EventID><TimeCreated SystemTime="2026-01-01T00:00:00Z"/></System><EventData><Data>value</Data></EventData></Event></Events>"#;
         let events = super::parse_windows_events(xml).unwrap();
         assert_eq!(events[0]["event_id"], 42);
         assert_eq!(events[0]["data"][0], "value");

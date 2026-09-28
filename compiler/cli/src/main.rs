@@ -60,6 +60,7 @@ fn main() -> anyhow::Result<()> {
             let llvm_path = output.with_extension("ll");
             fs::write(&llvm_path, llvm).with_context(|| format!("write {}", llvm_path.display()))?;
             let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let mut native_libs = Vec::new();
             let library = match runtime_lib {
                 Some(path) => path,
                 None => {
@@ -67,7 +68,19 @@ fn main() -> anyhow::Result<()> {
                         .map(PathBuf::from).unwrap_or_else(|| root.join("target"));
                     let name = if cfg!(target_os = "windows") { "jocky_runtime.lib" } else { "libjocky_runtime.a" };
                     let path = target.join("release").join(name);
-                    if !path.exists() {
+                    if cfg!(target_os = "windows") {
+                        let output = ProcessCommand::new("cargo")
+                            .args(["rustc", "--release", "-p", "jocky-runtime", "--lib", "--manifest-path"])
+                            .arg(root.join("Cargo.toml"))
+                            .args(["--", "--print", "native-static-libs"])
+                            .output().context("build JOCKY runtime and query native libraries")?;
+                        anyhow::ensure!(output.status.success(), "runtime build failed: {}", String::from_utf8_lossy(&output.stderr));
+                        let diagnostics = String::from_utf8_lossy(&output.stderr);
+                        native_libs = diagnostics.lines()
+                            .filter_map(|line| line.split_once("native-static-libs:").map(|(_, libs)| libs))
+                            .flat_map(str::split_whitespace).map(str::to_string).collect();
+                        anyhow::ensure!(!native_libs.is_empty(), "rustc did not report native static libraries");
+                    } else if !path.exists() {
                         let status = ProcessCommand::new("cargo")
                             .args(["build", "--release", "-p", "jocky-runtime", "--manifest-path"])
                             .arg(root.join("Cargo.toml"))
@@ -80,6 +93,7 @@ fn main() -> anyhow::Result<()> {
             anyhow::ensure!(library.is_file(), "runtime library not found: {}", library.display());
             let mut command = ProcessCommand::new("clang");
             command.arg(&llvm_path).arg(&library).arg("-o").arg(&output);
+            command.args(native_libs);
             if cfg!(target_os = "linux") {
                 command.args(["-ldl", "-lpthread", "-lm"]);
             }

@@ -18,6 +18,6 @@ The `jocky-stdlib` Rust crate implements read-only forensic capabilities. The se
 - `timeline.build(binding)` - RFC 3339 timestamp sorting; undated/invalid records are counted and omitted.
 - `reporting.summary(binding)` - record count and SHA-256 digest of JSON evidence.
 
-`filesystem` and file-based `logs` calls require `JOCKY_READ_ROOTS` to name authorized directories. This is an opt-in local read policy, not a substitute for OS permissions or a hardened filesystem sandbox. Native journal and event-channel APIs obey OS access controls. `hashing.sha256` hashes a DSL string literal, while `timeline` and `reporting` take a previously collected binding. Process, module, and network snapshots carry observation timestamps; undated syslog lines are not silently assigned an event time.
+`filesystem` and file-based `logs` calls require `JOCKY_READ_ROOTS` to name authorized directories. They open files relative to directory capabilities and read through the resulting handles, which prevents symlink escape from a configured root. This is not a substitute for OS permissions or a process sandbox. Native journal and event-channel APIs obey OS access controls. `hashing.sha256` hashes a DSL string literal, while `timeline` and `reporting` take a previously collected binding. Process, module, and network snapshots carry observation timestamps; undated syslog lines are not silently assigned an event time.
 
 No standard-library function bypasses security controls, disables products, persists code, steals secrets, exploits privileges, or performs destructive changes.
