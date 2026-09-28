@@ -25,7 +25,7 @@ def wait_for(predicate, description, seconds=180):
             result = predicate()
             if result:
                 return result
-        except (HTTPError, URLError, TimeoutError):
+        except (HTTPError, URLError, TimeoutError, OSError):
             pass
         time.sleep(2)
     raise AssertionError(f"Timed out waiting for {description}")
@@ -33,8 +33,7 @@ def wait_for(predicate, description, seconds=180):
 
 def main():
     wait_for(lambda: request("GET", "/health").get("status") == "ok", "API health")
-    with urlopen("http://127.0.0.1:5173", timeout=10) as response:
-        assert response.status == 200
+    wait_for(lambda: urlopen("http://127.0.0.1:5173", timeout=10).status == 200, "dashboard")
 
     token = request("POST", "/api/auth/login", {"email": "analyst@jocky.local", "password": "jocky-demo"})["access_token"]
     agent = wait_for(lambda: next((a for a in request("GET", "/api/agents", token=token) if a["id"] == "demo-agent"), None), "agent registration")
