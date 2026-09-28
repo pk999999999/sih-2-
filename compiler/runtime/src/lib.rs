@@ -59,15 +59,20 @@ impl Runtime {
             }
             IrOp::Report { name, includes } => {
                 let mut evidence = BTreeMap::new();
+                let mut evidence_sha256 = BTreeMap::new();
                 for include in includes {
                     let value = self.bindings.get(include)
                         .with_context(|| format!("unknown binding {include}"))?;
+                    let digest = jocky_stdlib::reporting::summary(value)?["sha256"]
+                        .as_str().expect("summary returns SHA-256").to_string();
+                    evidence_sha256.insert(include.clone(), digest);
                     evidence.insert(include.clone(), value.clone());
                 }
                 self.reports.push(json!({
                     "name": name,
                     "generated_at": OffsetDateTime::now_utc().to_string(),
-                    "evidence": evidence
+                    "evidence": evidence,
+                    "evidence_sha256": evidence_sha256
                 }));
             }
         }
@@ -192,5 +197,17 @@ mod tests {
             args: vec![Argument::Literal(Literal::String("missing-file".into()))],
         };
         assert!(runtime.execute_op(&op).is_err());
+    }
+
+    #[test]
+    fn reports_hash_included_evidence() {
+        let mut runtime = Runtime::default();
+        runtime.begin(&Target::Host("localhost".into())).unwrap();
+        runtime.execute_op(&IrOp::Collect {
+            binding: "digest".into(), capability: "hashing.sha256".into(),
+            args: vec![Argument::Literal(Literal::String("abc".into()))],
+        }).unwrap();
+        runtime.execute_op(&IrOp::Report { name: "r".into(), includes: vec!["digest".into()] }).unwrap();
+        assert_eq!(runtime.output()["reports"][0]["evidence_sha256"]["digest"].as_str().unwrap().len(), 64);
     }
 }

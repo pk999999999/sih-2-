@@ -12,3 +12,5 @@ Pipeline:
 LLVM lowering emits one call for each investigation boundary and each IR operation. It checks every runtime status, stops on an error, and frees the session. The linked Rust static library implements collection, filtering, and reporting. `jocky build <file> --output <path>` writes `.ll`, builds the runtime library when needed, and invokes Clang. `jocky compile <file> --format llvm` emits the IR for inspection.
 
 Both execution modes reject nonlocal targets, propagate collector errors, and produce the same report evidence for deterministic inputs. Native code generation does not inline platform collectors into LLVM; it keeps them in the audited runtime ABI.
+
+Each report includes a SHA-256 digest for every included evidence value. The digest covers the runtime's JSON serialization of that value, allowing an analyst to verify that a report's evidence has not changed after generation.

@@ -25,6 +25,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace
       - run: cargo run -p jocky-cli -- run examples/stdlib_investigation.jky
+      - run: cargo run -p jocky-cli -- build examples/deterministic.jky --output "$env:RUNNER_TEMP\jocky-native.exe"
+      - run: '& "$env:RUNNER_TEMP\jocky-native.exe"'
   backend:
     runs-on: ubuntu-latest
     defaults:
