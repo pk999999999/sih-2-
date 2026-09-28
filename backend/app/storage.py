@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from . import config
 
@@ -24,21 +24,20 @@ def put_object(key: str, data: bytes) -> None:
         path.write_bytes(data)
         return
     client = _client()
-    for attempt in range(5):
+    for attempt in range(10):
         try:
-            client.head_bucket(Bucket=config.MINIO_BUCKET)
-            break
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] in {"404", "NoSuchBucket"}:
-                try:
-                    client.create_bucket(Bucket=config.MINIO_BUCKET)
-                    break
-                except ClientError:
-                    pass
-            if attempt == 4:
+            try:
+                client.head_bucket(Bucket=config.MINIO_BUCKET)
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] not in {"404", "NoSuchBucket"}:
+                    raise
+                client.create_bucket(Bucket=config.MINIO_BUCKET)
+            client.put_object(Bucket=config.MINIO_BUCKET, Key=key, Body=data, ContentType="application/json")
+            return
+        except (ClientError, BotoCoreError):
+            if attempt == 9:
                 raise
             time.sleep(1)
-    client.put_object(Bucket=config.MINIO_BUCKET, Key=key, Body=data, ContentType="application/json")
 
 
 def get_object(key: str) -> bytes:

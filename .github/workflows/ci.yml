@@ -52,3 +52,16 @@ jobs:
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: docker compose config --quiet
+      - run: docker compose up --build -d
+      - run: python tests/e2e/compose_smoke.py
+      - if: always()
+        run: docker compose down -v
