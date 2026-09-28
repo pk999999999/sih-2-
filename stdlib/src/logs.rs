@@ -11,7 +11,12 @@ pub fn read(path: &str) -> Result<Value> {
     let (path, file, metadata) = checked_file(path)?;
     let mut bytes = Vec::new();
     file.take(MAX_LOG_BYTES).read_to_end(&mut bytes)?;
-    let byte_truncated = metadata.len() > bytes.len() as u64;
+    let (lines, truncated) = bounded_lines(bytes, metadata.len())?;
+    Ok(json!({"path": path, "lines": lines, "truncated": truncated}))
+}
+
+fn bounded_lines(mut bytes: Vec<u8>, total_len: u64) -> Result<(Vec<String>, bool)> {
+    let byte_truncated = total_len > bytes.len() as u64;
     if byte_truncated && !bytes.ends_with(b"\n") {
         if let Some(last_newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
             bytes.truncate(last_newline + 1);
@@ -24,7 +29,7 @@ pub fn read(path: &str) -> Result<Value> {
     let line_truncated = lines.len() > 1000;
     lines.truncate(1000);
     let truncated = byte_truncated || line_truncated;
-    Ok(json!({"path": path, "lines": lines, "truncated": truncated}))
+    Ok((lines, truncated))
 }
 
 pub fn syslog(path: &str) -> Result<Value> {
@@ -139,6 +144,16 @@ fn parse_windows_events(text: &str) -> Result<Vec<Value>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bounded_lines_do_not_invent_partial_events() {
+        let (lines, truncated) = super::bounded_lines(b"first\npartial".to_vec(), 100).unwrap();
+        assert_eq!(lines, vec!["first".to_string()]);
+        assert!(truncated);
+        let (lines, truncated) = super::bounded_lines("entry\n".repeat(1000).into_bytes(), 6000).unwrap();
+        assert_eq!(lines.len(), 1000);
+        assert!(!truncated);
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn parses_event_xml() {

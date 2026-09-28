@@ -1,11 +1,17 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde_json::Value;
 
+#[cfg(target_os = "linux")]
 pub fn info() -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    { return Ok(jocky_agent_linux::collect_system_info()); }
-    #[cfg(target_os = "windows")]
-    { return Ok(jocky_agent_windows::collect_system_info()); }
-    #[allow(unreachable_code)]
-    bail!("unsupported platform")
+    Ok(jocky_agent_linux::collect_system_info())
+}
+
+#[cfg(target_os = "windows")]
+pub fn info() -> Result<Value> {
+    Ok(jocky_agent_windows::collect_system_info())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub fn info() -> Result<Value> {
+    anyhow::bail!("unsupported platform")
 }

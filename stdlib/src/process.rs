@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 
 fn observed_at() -> String {
@@ -7,32 +7,34 @@ fn observed_at() -> String {
         .expect("UTC timestamp formatting")
 }
 
+#[cfg(target_os = "linux")]
 pub fn list() -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        let timestamp = observed_at();
-        return Ok(json!(jocky_agent_linux::collect_processes()?.into_iter()
-            .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
-            .collect::<Vec<_>>()));
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let timestamp = observed_at();
-        return Ok(json!(jocky_agent_windows::collect_processes()?.into_iter()
-            .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
-            .collect::<Vec<_>>()));
-    }
-    #[allow(unreachable_code)]
-    bail!("unsupported platform")
+    let timestamp = observed_at();
+    Ok(json!(jocky_agent_linux::collect_processes()?.into_iter()
+        .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
+        .collect::<Vec<_>>()))
 }
 
+#[cfg(target_os = "windows")]
+pub fn list() -> Result<Value> {
+    let timestamp = observed_at();
+    Ok(json!(jocky_agent_windows::collect_processes()?.into_iter()
+        .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
+        .collect::<Vec<_>>()))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub fn list() -> Result<Value> { anyhow::bail!("unsupported platform") }
+
+#[cfg(target_os = "linux")]
+pub fn modules(pid: u32) -> Result<Value> { linux_modules(pid) }
+
+#[cfg(target_os = "windows")]
+pub fn modules(pid: u32) -> Result<Value> { windows_modules(pid) }
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn modules(pid: u32) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    { return linux_modules(pid); }
-    #[cfg(target_os = "windows")]
-    { return windows_modules(pid); }
-    #[allow(unreachable_code)]
-    bail!("unsupported platform")
+    anyhow::bail!("unsupported platform for process {pid}")
 }
 
 #[cfg(target_os = "linux")]
