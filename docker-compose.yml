@@ -15,17 +15,16 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-06T17-38-46Z
-    command: server /data --console-address ":9001"
+  objectstore:
+    image: chrislusf/seaweedfs:latest
     environment:
-      MINIO_ROOT_USER: jocky
-      MINIO_ROOT_PASSWORD: jocky-secret
+      AWS_ACCESS_KEY_ID: jocky
+      AWS_SECRET_ACCESS_KEY: jocky-secret
+      S3_BUCKET: evidence
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8333:8333"
     volumes:
-      - minio-data:/data
+      - objectstore-data:/data
 
   backend:
     build: ./backend
@@ -38,7 +37,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      objectstore:
         condition: service_started
 
   frontend:
@@ -63,4 +62,4 @@ services:
 
 volumes:
   postgres-data:
-  minio-data:
+  objectstore-data:

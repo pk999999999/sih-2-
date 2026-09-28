@@ -9,7 +9,7 @@ This prototype includes:
 - Cross-platform forensic agent crates and a polling agent executable for Windows and Linux.
 - A FastAPI backend with JWT authentication, investigations, agents, jobs, evidence metadata, and report endpoints.
 - A React + TypeScript dashboard.
-- Docker Compose for PostgreSQL, MinIO, backend, and frontend.
+- Docker Compose for PostgreSQL, S3-compatible SeaweedFS storage, backend, agent, and frontend.
 - Tests, examples, and documentation.
 
 ## Safety Scope
@@ -44,14 +44,14 @@ Services:
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8000
 - API docs: http://localhost:8000/docs
-- MinIO console: http://localhost:9001
+- S3 object store: http://localhost:8333
 
 Default demo login (local development only):
 
 - Email: `analyst@jocky.local`
 - Password: `jocky-demo`
 
-The Compose stack starts a Linux agent registered as `demo-agent`. Create an investigation and schedule a supported collection from the Jobs view. Evidence is stored as JSON with a SHA-256 digest. The API checks the digest when evidence is opened.
+The Compose stack starts a Linux agent registered as `demo-agent`. Create an investigation and schedule a supported collection from the Jobs view. Evidence is stored as JSON in the S3-compatible object store with a SHA-256 digest. The API checks the digest when evidence is opened.
 
 This is a prototype. The LLVM output is a code generation stub, so the executable path is the interpreted IR runtime. Agent authentication uses a shared development key; production deployments need per-agent credentials, TLS, audited enrollment, and an explicit authorization policy before connecting real endpoints.
 

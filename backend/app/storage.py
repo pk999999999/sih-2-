@@ -2,6 +2,7 @@ import time
 from pathlib import Path
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from . import config
@@ -10,10 +11,11 @@ from . import config
 def _client():
     return boto3.client(
         "s3",
-        endpoint_url=f"http://{config.MINIO_ENDPOINT}",
-        aws_access_key_id=config.MINIO_ACCESS_KEY,
-        aws_secret_access_key=config.MINIO_SECRET_KEY,
+        endpoint_url=f"http://{config.S3_ENDPOINT}",
+        aws_access_key_id=config.S3_ACCESS_KEY,
+        aws_secret_access_key=config.S3_SECRET_KEY,
         region_name="us-east-1",
+        config=Config(s3={"addressing_style": "path"}),
     )
 
 
@@ -27,12 +29,12 @@ def put_object(key: str, data: bytes) -> None:
     for attempt in range(10):
         try:
             try:
-                client.head_bucket(Bucket=config.MINIO_BUCKET)
+                client.head_bucket(Bucket=config.S3_BUCKET)
             except ClientError as exc:
                 if exc.response["Error"]["Code"] not in {"404", "NoSuchBucket"}:
                     raise
-                client.create_bucket(Bucket=config.MINIO_BUCKET)
-            client.put_object(Bucket=config.MINIO_BUCKET, Key=key, Body=data, ContentType="application/json")
+                client.create_bucket(Bucket=config.S3_BUCKET)
+            client.put_object(Bucket=config.S3_BUCKET, Key=key, Body=data, ContentType="application/json")
             return
         except (ClientError, BotoCoreError):
             if attempt == 9:
@@ -43,4 +45,4 @@ def put_object(key: str, data: bytes) -> None:
 def get_object(key: str) -> bytes:
     if config.STORAGE_BACKEND == "local":
         return (Path(config.EVIDENCE_DIR) / key).read_bytes()
-    return _client().get_object(Bucket=config.MINIO_BUCKET, Key=key)["Body"].read()
+    return _client().get_object(Bucket=config.S3_BUCKET, Key=key)["Body"].read()

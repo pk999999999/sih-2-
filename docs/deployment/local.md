@@ -23,7 +23,7 @@ npm install
 npm run dev
 ```
 
-The Docker Compose stack runs a Linux agent that registers as `demo-agent` and polls for queued jobs. Use the login shown in the root README, create an investigation, then schedule `system.info`, `process.list`, or `network.connections` from the Jobs view. The agent submits JSON evidence to the API; the API hashes it and stores it in MinIO. Backend-only development uses local evidence files by default.
+The Docker Compose stack runs a Linux agent that registers as `demo-agent` and polls for queued jobs. Use the login shown in the root README, create an investigation, then schedule `system.info`, `process.list`, or `network.connections` from the Jobs view. The agent submits JSON evidence to the API; the API hashes it and stores it through the S3 API in SeaweedFS. Backend-only development uses local evidence files by default.
 
 To run the agent outside Docker, set `JOCKY_AGENT_KEY`, `JOCKY_API_URL`, and `JOCKY_AGENT_ID`, then run `cargo run -p jocky-agent`. The agent is read-only and polls every five seconds. Agent credentials and demo login values in this repository are for local development only.
 
