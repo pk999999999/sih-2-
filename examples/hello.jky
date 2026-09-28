@@ -1,0 +1,8 @@
+investigation "Hello JOCKY" {
+  target host("localhost")
+  collect system.info() as sys
+  report "hello-report" {
+    include sys
+  }
+}
+

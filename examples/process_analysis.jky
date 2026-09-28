@@ -1,0 +1,9 @@
+investigation "Process analysis" {
+  target host("localhost")
+  collect process.list() as processes
+  analyze processes where name contains "powershell"
+  report "process-report" {
+    include processes
+  }
+}
+

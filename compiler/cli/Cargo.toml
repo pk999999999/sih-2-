@@ -1,0 +1,17 @@
+[package]
+name = "jocky-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+jocky-codegen = { path = "../codegen" }
+jocky-ir = { path = "../ir" }
+jocky-parser = { path = "../parser" }
+jocky-runtime = { path = "../runtime" }
+jocky-semantic = { path = "../semantic" }
+serde_json.workspace = true
+

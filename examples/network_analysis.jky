@@ -1,0 +1,8 @@
+investigation "Network analysis" {
+  target host("localhost")
+  collect network.connections() as connections
+  report "network-report" {
+    include connections
+  }
+}
+

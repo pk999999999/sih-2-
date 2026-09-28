@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+  "compiler/lexer",
+  "compiler/ast",
+  "compiler/parser",
+  "compiler/semantic",
+  "compiler/ir",
+  "compiler/codegen",
+  "compiler/runtime",
+  "compiler/cli",
+  "agent/common",
+  "agent/windows",
+  "agent/linux",
+  "agent/runner"
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/pk999999999/sih-2-.git"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+logos = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+time = { version = "0.3", features = ["formatting", "macros", "serde"] }
+uuid = { version = "1", features = ["serde", "v4"] }

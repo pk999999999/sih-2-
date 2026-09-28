@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jocky
+      POSTGRES_USER: jocky
+      POSTGRES_PASSWORD: jocky
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jocky"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: jocky
+      MINIO_ROOT_PASSWORD: jocky-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  backend:
+    build: ./backend
+    env_file: .env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://jocky:jocky@postgres:5432/jocky
+      STORAGE_BACKEND: s3
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    environment:
+      JOCKY_API_URL: http://backend:8000
+      JOCKY_AGENT_KEY: dev-agent-key
+      JOCKY_AGENT_ID: demo-agent
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+  minio-data:
