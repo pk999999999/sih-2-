@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use jocky_ast::Predicate;
+use jocky_ast::{Argument, Literal, Predicate};
 use jocky_ir::{IrOp, IrProgram};
 use serde_json::{json, Value};
 use time::OffsetDateTime;
@@ -22,7 +22,14 @@ impl Runtime {
                         capability,
                         args,
                     } => {
-                        let value = safe_collect(capability, args);
+                        let resolved = args.iter().map(|arg| match arg {
+                            Argument::Literal(Literal::String(s)) => json!(s),
+                            Argument::Literal(Literal::Integer(i)) => json!(i),
+                            Argument::Literal(Literal::Boolean(b)) => json!(b),
+                            Argument::Binding(name) => self.bindings.get(name).cloned().unwrap_or(Value::Null),
+                        }).collect::<Vec<_>>();
+                        let value = jocky_stdlib::invoke(capability, &resolved)
+                            .unwrap_or_else(|error| json!({"error": error.to_string()}));
                         self.bindings.insert(binding.clone(), value);
                     }
                     IrOp::Filter { source, destination, predicate } => {
@@ -84,35 +91,24 @@ fn filter_rows(value: &Value, predicate: &Predicate) -> Value {
     }
 }
 
-fn safe_collect(capability: &str, _args: &[String]) -> Value {
-    match capability {
-        "system.info" => local_system_info(),
-        "process.list" => local_processes(),
-        "network.connections" => local_connections(),
-        _ => json!({"error": "unsupported capability"}),
+#[no_mangle]
+pub extern "C" fn jocky_runtime_execute_plan(plan: *const u8, len: usize) -> i32 {
+    let result = std::panic::catch_unwind(|| -> Result<(), Box<dyn std::error::Error>> {
+        if plan.is_null() || len > 16 * 1024 * 1024 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid JOCKY plan buffer").into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(plan, len) };
+        let ir: IrProgram = serde_json::from_slice(bytes)?;
+        let output = Runtime::default().execute(&ir);
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        Ok(())
+    });
+    match result {
+        Ok(Ok(())) => 0,
+        Ok(Err(error)) => { eprintln!("jocky runtime: {error}"); 1 },
+        Err(_) => { eprintln!("jocky runtime panic"); 2 },
     }
 }
-
-#[cfg(target_os = "linux")]
-fn local_system_info() -> Value { jocky_agent_linux::collect_system_info() }
-#[cfg(target_os = "windows")]
-fn local_system_info() -> Value { jocky_agent_windows::collect_system_info() }
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn local_system_info() -> Value { json!({"error": "unsupported platform"}) }
-
-#[cfg(target_os = "linux")]
-fn local_processes() -> Value { jocky_agent_linux::collect_processes().map(|rows| json!(rows)).unwrap_or_else(|error| json!({"error": error.to_string()})) }
-#[cfg(target_os = "windows")]
-fn local_processes() -> Value { jocky_agent_windows::collect_processes().map(|rows| json!(rows)).unwrap_or_else(|error| json!({"error": error.to_string()})) }
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn local_processes() -> Value { json!({"error": "unsupported platform"}) }
-
-#[cfg(target_os = "linux")]
-fn local_connections() -> Value { jocky_agent_linux::collect_network_connections().unwrap_or_else(|error| json!({"error": error.to_string()})) }
-#[cfg(target_os = "windows")]
-fn local_connections() -> Value { jocky_agent_windows::collect_network_connections().unwrap_or_else(|error| json!({"error": error.to_string()})) }
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn local_connections() -> Value { json!({"error": "unsupported platform"}) }
 
 #[cfg(test)]
 mod tests {

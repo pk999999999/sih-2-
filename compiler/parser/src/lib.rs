@@ -1,4 +1,4 @@
-use jocky_ast::{ForensicCall, Investigation, Literal, Predicate, Program, Statement, Target};
+use jocky_ast::{Argument, ForensicCall, Investigation, Literal, Predicate, Program, Statement, Target};
 use jocky_lexer::{lex, LexError, SpannedToken, Token};
 use thiserror::Error;
 
@@ -119,7 +119,7 @@ impl Parser {
         let mut args = Vec::new();
         if !self.check(TokenKind::RParen) {
             loop {
-                args.push(self.literal()?);
+                args.push(self.argument()?);
                 if !self.matches(TokenKind::Comma) {
                     break;
                 }
@@ -131,6 +131,14 @@ impl Parser {
             function,
             args,
         })
+    }
+
+    fn argument(&mut self) -> Result<Argument, ParseError> {
+        if let Some(SpannedToken { token: Token::Identifier(_), .. }) = self.peek() {
+            Ok(Argument::Binding(self.expect_identifier()?))
+        } else {
+            Ok(Argument::Literal(self.literal()?))
+        }
     }
 
     fn literal(&mut self) -> Result<Literal, ParseError> {
@@ -288,5 +296,11 @@ mod tests {
         .unwrap();
         assert_eq!(program.investigations.len(), 1);
     }
-}
 
+    #[test]
+    fn parses_binding_and_literal_arguments() {
+        let program = parse_program(r#"investigation "x" { target host("h") collect hashing.sha256("abc") as digest collect reporting.summary(digest) as summary }"#).unwrap();
+        let Statement::Collect { call, .. } = &program.investigations[0].statements[1] else { panic!("expected collect") };
+        assert_eq!(call.args, vec![Argument::Binding("digest".into())]);
+    }
+}

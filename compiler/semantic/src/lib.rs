@@ -1,13 +1,7 @@
 use std::collections::HashSet;
 
-use jocky_ast::{ForensicCall, Program, Statement};
+use jocky_ast::{Argument, ForensicCall, Literal, Program, Statement};
 use thiserror::Error;
-
-const SAFE_CALLS: &[(&str, &str)] = &[
-    ("system", "info"),
-    ("process", "list"),
-    ("network", "connections"),
-];
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SemanticError {
@@ -17,6 +11,8 @@ pub enum SemanticError {
     DuplicateBinding(String),
     #[error("unknown binding {0}")]
     UnknownBinding(String),
+    #[error("invalid arguments for {0}.{1}: {2}")]
+    InvalidArguments(String, String, &'static str),
 }
 
 pub fn analyze(program: &Program) -> Result<(), SemanticError> {
@@ -25,7 +21,7 @@ pub fn analyze(program: &Program) -> Result<(), SemanticError> {
         for statement in &investigation.statements {
             match statement {
                 Statement::Collect { call, alias } => {
-                    validate_call(call)?;
+                    validate_call(call, &bindings)?;
                     if !bindings.insert(alias.clone()) {
                         return Err(SemanticError::DuplicateBinding(alias.clone()));
                     }
@@ -52,17 +48,26 @@ pub fn analyze(program: &Program) -> Result<(), SemanticError> {
     Ok(())
 }
 
-fn validate_call(call: &ForensicCall) -> Result<(), SemanticError> {
-    if SAFE_CALLS
-        .iter()
-        .any(|(namespace, function)| *namespace == call.namespace && *function == call.function)
-    {
-        Ok(())
-    } else {
-        Err(SemanticError::UnsafeCall(
+fn validate_call(call: &ForensicCall, bindings: &HashSet<String>) -> Result<(), SemanticError> {
+    let expected = match (call.namespace.as_str(), call.function.as_str()) {
+        ("system", "info") | ("process", "list") | ("network", "connections") => 0,
+        ("filesystem", "metadata") | ("filesystem", "hash") | ("logs", "read")
+        | ("hashing", "sha256") | ("timeline", "build") | ("reporting", "summary") => 1,
+        _ => return Err(SemanticError::UnsafeCall(
             call.namespace.clone(),
             call.function.clone(),
-        ))
+        )),
+    };
+    if call.args.len() != expected {
+        return Err(SemanticError::InvalidArguments(call.namespace.clone(), call.function.clone(), "wrong argument count"));
+    }
+    match (call.namespace.as_str(), call.function.as_str(), call.args.first()) {
+        ("filesystem" | "logs" | "hashing", _, Some(Argument::Literal(Literal::String(_)))) => Ok(()),
+        ("timeline" | "reporting", _, Some(Argument::Binding(name))) => {
+            if bindings.contains(name) { Ok(()) } else { Err(SemanticError::UnknownBinding(name.clone())) }
+        }
+        ("system" | "process" | "network", _, None) => Ok(()),
+        _ => Err(SemanticError::InvalidArguments(call.namespace.clone(), call.function.clone(), "expected a string literal or prior binding")),
     }
 }
 
@@ -108,5 +113,13 @@ mod tests {
             }],
         };
         assert!(analyze(&program).is_ok());
+    }
+
+    #[test]
+    fn validates_argument_types_and_binding_order() {
+        let program = jocky_parser::parse_program(r#"investigation "x" { target host("h") collect reporting.summary(missing) as summary }"#).unwrap();
+        assert_eq!(analyze(&program), Err(SemanticError::UnknownBinding("missing".into())));
+        let program = jocky_parser::parse_program(r#"investigation "x" { target host("h") collect filesystem.hash(1) as digest }"#).unwrap();
+        assert!(matches!(analyze(&program), Err(SemanticError::InvalidArguments(..))));
     }
 }

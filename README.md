@@ -4,8 +4,8 @@ JOCKY is a defensive digital-forensics programming language and investigation pl
 
 This prototype includes:
 
-- A Rust DSL toolchain: lexer, parser, AST, semantic analyzer, IR, runtime, CLI, and safe code-generation stubs.
-- Read-only collectors for system, process, and network workflows, with standard-library directories reserved for further forensic capabilities.
+- A Rust DSL toolchain: lexer, parser, AST, semantic analyzer, IR, runtime, CLI, and LLVM IR generation linked to the runtime.
+- A Rust forensic standard library covering system, process, filesystem, network, logs, hashing, timeline, and reporting.
 - Cross-platform forensic agent crates and a polling agent executable for Windows and Linux.
 - A FastAPI backend with JWT authentication, investigations, agents, jobs, evidence metadata, and report endpoints.
 - A React + TypeScript dashboard.
@@ -53,7 +53,7 @@ Default demo login (local development only):
 
 The Compose stack starts a Linux agent registered as `demo-agent`. Create an investigation and schedule a supported collection from the Jobs view. Evidence is stored as JSON in the S3-compatible object store with a SHA-256 digest. The API checks the digest when evidence is opened.
 
-This is a prototype. The LLVM output is a code generation stub, so the executable path is the interpreted IR runtime. Agent authentication uses a shared development key; production deployments need per-agent credentials, TLS, audited enrollment, and an explicit authorization policy before connecting real endpoints.
+This is a prototype. The LLVM backend emits a native entry point that embeds the validated JOCKY plan and invokes the same Rust runtime as the interpreter; it is not independent lowering of each forensic operation to LLVM instructions. Agent authentication uses a shared development key; production deployments need per-agent credentials, TLS, audited enrollment, and an explicit authorization policy before connecting real endpoints.
 
 ## Language Example
 
@@ -86,10 +86,21 @@ Run semantic checks:
 cargo run -p jocky-cli -- check examples/full_investigation.jky
 ```
 
+Compile and run a native Linux executable with LLVM/Clang:
+
+```bash
+cargo build --release -p jocky-runtime
+cargo run -p jocky-cli -- compile examples/stdlib_investigation.jky --format llvm > jocky.ll
+clang jocky.ll target/release/libjocky_runtime.a -o jocky-native -ldl -lpthread -lm
+./jocky-native
+```
+
+For file metadata, hashing, or log reads, set `JOCKY_READ_ROOTS` to explicitly authorized directories (platform path-list syntax). Reads outside those roots are rejected. `filesystem` rejects non-regular files and files over 64 MiB; log output is bounded to 1 MiB and 1,000 lines. The local DSL runtime supports these modules; the remote agent job API currently exposes only system, process, and network collection.
+
 ## Repository Map
 
 - `compiler/` - Rust DSL implementation.
-- `stdlib/` - Safe forensic API contracts and documentation.
+- `stdlib/` - Rust forensic APIs and documentation.
 - `agent/` - Rust forensic agent crates.
 - `backend/` - FastAPI service.
 - `frontend/` - React dashboard.

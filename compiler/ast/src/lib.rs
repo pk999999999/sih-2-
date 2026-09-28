@@ -38,7 +38,13 @@ pub enum Statement {
 pub struct ForensicCall {
     pub namespace: String,
     pub function: String,
-    pub args: Vec<Literal>,
+    pub args: Vec<Argument>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Argument {
+    Literal(Literal),
+    Binding(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,4 +65,3 @@ pub enum Predicate {
         value: String,
     },
 }
-

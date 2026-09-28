@@ -12,6 +12,12 @@ jobs:
       - run: cargo test --workspace
       - run: cargo run -p jocky-cli -- check examples/full_investigation.jky
       - run: cargo run -p jocky-cli -- run examples/hello.jky
+      - run: cargo run -p jocky-cli -- check examples/stdlib_investigation.jky
+      - run: cargo run -p jocky-cli -- run examples/stdlib_investigation.jky
+      - run: cargo build --release -p jocky-runtime
+      - run: cargo run -p jocky-cli -- compile examples/stdlib_investigation.jky --format llvm > /tmp/jocky.ll
+      - run: clang /tmp/jocky.ll target/release/libjocky_runtime.a -o /tmp/jocky-native -ldl -lpthread -lm
+      - run: /tmp/jocky-native
   backend:
     runs-on: ubuntu-latest
     defaults:

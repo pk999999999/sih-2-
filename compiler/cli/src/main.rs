@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
             match format.as_str() {
                 "json" => println!("{}", jocky_ir::to_json(&ir)?),
                 "plan" => println!("{}", jocky_codegen::emit_pseudo_native(&ir)),
-                "llvm" => println!("{}", jocky_codegen::emit_llvm_ir(&ir)),
+                "llvm" => print!("{}", jocky_codegen::emit_llvm_ir(&ir)?),
                 other => anyhow::bail!("unknown output format: {other}"),
             }
         }
@@ -55,4 +55,3 @@ fn load_checked(file: &PathBuf) -> anyhow::Result<jocky_ast::Program> {
     jocky_semantic::analyze(&program)?;
     Ok(program)
 }
-

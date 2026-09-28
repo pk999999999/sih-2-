@@ -9,6 +9,7 @@ members = [
   "compiler/codegen",
   "compiler/runtime",
   "compiler/cli",
+  "stdlib",
   "agent/common",
   "agent/windows",
   "agent/linux",
@@ -29,3 +30,4 @@ serde_json = "1"
 thiserror = "1"
 time = { version = "0.3", features = ["formatting", "macros", "serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
+sha2 = "0.10"

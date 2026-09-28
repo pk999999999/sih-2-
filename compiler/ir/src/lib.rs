@@ -1,4 +1,4 @@
-use jocky_ast::{Predicate, Program, Statement};
+use jocky_ast::{Argument, Predicate, Program, Statement};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,7 +18,7 @@ pub enum IrOp {
     Collect {
         binding: String,
         capability: String,
-        args: Vec<String>,
+        args: Vec<Argument>,
     },
     Filter {
         source: String,
@@ -46,7 +46,7 @@ pub fn lower(program: &Program) -> IrProgram {
                         Statement::Collect { call, alias } => IrOp::Collect {
                             binding: alias.clone(),
                             capability: format!("{}.{}", call.namespace, call.function),
-                            args: call.args.iter().map(|arg| format!("{arg:?}")).collect(),
+                            args: call.args.clone(),
                         },
                         Statement::Analyze { source, predicate } => IrOp::Filter {
                             source: source.clone(),

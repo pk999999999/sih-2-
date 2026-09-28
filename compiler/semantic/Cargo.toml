@@ -9,3 +9,5 @@ repository.workspace = true
 jocky-ast = { path = "../ast" }
 thiserror.workspace = true
 
+[dev-dependencies]
+jocky-parser = { path = "../parser" }
