@@ -8,10 +8,10 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+jocky-ast = { path = "../ast" }
 jocky-codegen = { path = "../codegen" }
 jocky-ir = { path = "../ir" }
 jocky-parser = { path = "../parser" }
 jocky-runtime = { path = "../runtime" }
 jocky-semantic = { path = "../semantic" }
 serde_json.workspace = true
-
