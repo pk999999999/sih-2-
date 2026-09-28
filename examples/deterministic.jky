@@ -1,0 +1,9 @@
+investigation "Native parity" {
+  target host("localhost")
+  collect hashing.sha256("authorized sample") as digest
+  collect reporting.summary(digest) as summary
+  report "parity-report" {
+    include digest
+    include summary
+  }
+}

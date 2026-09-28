@@ -1,11 +1,27 @@
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 
+fn observed_at() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("UTC timestamp formatting")
+}
+
 pub fn list() -> Result<Value> {
     #[cfg(target_os = "linux")]
-    { return Ok(serde_json::to_value(jocky_agent_linux::collect_processes()?)?); }
+    {
+        let timestamp = observed_at();
+        return Ok(json!(jocky_agent_linux::collect_processes()?.into_iter()
+            .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
+            .collect::<Vec<_>>()));
+    }
     #[cfg(target_os = "windows")]
-    { return Ok(serde_json::to_value(jocky_agent_windows::collect_processes()?)?); }
+    {
+        let timestamp = observed_at();
+        return Ok(json!(jocky_agent_windows::collect_processes()?.into_iter()
+            .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
+            .collect::<Vec<_>>()));
+    }
     #[allow(unreachable_code)]
     bail!("unsupported platform")
 }
@@ -41,7 +57,8 @@ fn linux_modules(pid: u32) -> Result<Value> {
         }
         if paths.len() >= 4096 { break; }
     }
-    Ok(json!({"pid": pid, "modules": paths.into_iter().map(|path| json!({"path": path})).collect::<Vec<_>>(), "source": path}))
+    let timestamp = observed_at();
+    Ok(json!({"pid": pid, "modules": paths.into_iter().map(|path| json!({"path": path, "timestamp": timestamp})).collect::<Vec<_>>(), "source": path}))
 }
 
 #[cfg(target_os = "windows")]
@@ -62,10 +79,11 @@ fn windows_modules(pid: u32) -> Result<Value> {
             return Err(std::io::Error::last_os_error().into());
         }
         let mut modules = Vec::new();
+        let timestamp = observed_at();
         loop {
             let end = entry.szExePath.iter().position(|unit| *unit == 0).unwrap_or(entry.szExePath.len());
             let path = String::from_utf16_lossy(&entry.szExePath[..end]);
-            modules.push(json!({"path": path, "size": entry.modBaseSize}));
+            modules.push(json!({"path": path, "size": entry.modBaseSize, "timestamp": timestamp}));
             if modules.len() >= 4096 || unsafe { Module32NextW(snapshot, &mut entry) } == 0 { break; }
         }
         Ok(json!({"pid": pid, "modules": modules, "source": "toolhelp32"}))

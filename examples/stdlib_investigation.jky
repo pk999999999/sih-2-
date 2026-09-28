@@ -1,11 +1,13 @@
 investigation "Standard library smoke test" {
   target host("localhost")
   collect hashing.sha256("authorized sample") as digest
+  collect process.list() as processes
   collect reporting.summary(digest) as digest_summary
-  collect timeline.build(digest) as timeline
+  collect timeline.build(processes) as timeline
   report "stdlib-report" {
     include digest
     include digest_summary
+    include processes
     include timeline
   }
 }

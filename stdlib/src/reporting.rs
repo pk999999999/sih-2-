@@ -6,7 +6,9 @@ pub fn summary(value: &Value) -> Result<Value> {
     let data = serde_json::to_vec(value)?;
     let record_count = match value {
         Value::Array(rows) => rows.len(),
-        Value::Object(map) => map.get("events").and_then(Value::as_array).map(Vec::len).unwrap_or(1),
+        Value::Object(map) => ["events", "processes", "connections", "modules", "lines"]
+            .iter().find_map(|key| map.get(*key).and_then(Value::as_array))
+            .map(Vec::len).unwrap_or(1),
         Value::Null => 0,
         _ => 1,
     };
@@ -19,5 +21,6 @@ mod tests {
     #[test]
     fn counts_array_records() {
         assert_eq!(summary(&json!([1,2])).unwrap()["record_count"], 2);
+        assert_eq!(summary(&json!({"connections": [1,2,3]})).unwrap()["record_count"], 3);
     }
 }

@@ -53,13 +53,13 @@ Default demo login (local development only):
 
 The Compose stack starts a Linux agent registered as `demo-agent`. Create an investigation and schedule a supported collection from the Jobs view. Evidence is stored as JSON in the S3-compatible object store with a SHA-256 digest. The API checks the digest when evidence is opened.
 
-This is a prototype. The LLVM backend emits a native entry point that embeds the validated JOCKY plan and invokes the same Rust runtime as the interpreter; it is not independent lowering of each forensic operation to LLVM instructions. Agent authentication uses a shared development key; production deployments need per-agent credentials, TLS, audited enrollment, and an explicit authorization policy before connecting real endpoints.
+This is a prototype. The LLVM backend lowers each investigation and IR operation to calls into the audited Rust runtime. Forensic collectors remain runtime library functions rather than being inlined as platform-specific LLVM instructions. Agent authentication uses a shared development key; production deployments need per-agent credentials, TLS, audited enrollment, and an explicit authorization policy before connecting real endpoints.
 
 ## Language Example
 
 ```jocky
 investigation "Suspicious process triage" {
-  target host("workstation-17")
+  target host("localhost")
 
   collect system.info() as sys
   collect process.list() as processes
@@ -86,16 +86,16 @@ Run semantic checks:
 cargo run -p jocky-cli -- check examples/full_investigation.jky
 ```
 
-Compile and run a native Linux executable with LLVM/Clang:
+Compile and run a native executable with LLVM/Clang:
 
 ```bash
-cargo build --release -p jocky-runtime
-cargo run -p jocky-cli -- compile examples/stdlib_investigation.jky --format llvm > jocky.ll
-clang jocky.ll target/release/libjocky_runtime.a -o jocky-native -ldl -lpthread -lm
+cargo run -p jocky-cli -- build examples/stdlib_investigation.jky --output jocky-native
 ./jocky-native
 ```
 
-For file metadata, hashing, or log reads, set `JOCKY_READ_ROOTS` to explicitly authorized directories (platform path-list syntax). Reads outside those roots are rejected. `filesystem` rejects non-regular files and files over 64 MiB; log output is bounded to 1 MiB and 1,000 lines. The local DSL runtime supports these modules; the remote agent job API currently exposes only system, process, and network collection.
+`build` emits a sibling `.ll` file, builds the Rust runtime library if needed, and invokes Clang. On Windows, use an `.exe` output path and a Clang/MSVC toolchain. `run` and native binaries execute only a local `host("localhost")` (or matching host name) target; an `agent(...)` target is for the separate backend job path and is rejected by the local CLI.
+
+For file metadata, hashing, or file-based log reads, set `JOCKY_READ_ROOTS` to explicitly authorized directories (platform path-list syntax). Reads outside those roots are rejected. `filesystem` rejects non-regular files and files over 64 MiB; file log output is bounded to 1 MiB and 1,000 lines. OS permissions remain authoritative. The local DSL runtime supports all documented stdlib calls; the remote agent job API currently exposes only system, process, and network collection.
 
 ## Repository Map
 
