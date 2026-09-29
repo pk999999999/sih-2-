@@ -28,6 +28,10 @@ jobs:
       - run: cargo run -p jocky-cli -- run examples/stdlib_investigation.jky
       - run: cargo run -p jocky-cli -- build examples/deterministic.jky --output "$env:RUNNER_TEMP\jocky-native.exe"
       - run: '& "$env:RUNNER_TEMP\jocky-native.exe"'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jocky-cli-windows
+          path: target/debug/jocky-cli.exe
   backend:
     runs-on: ubuntu-latest
     defaults:
@@ -86,6 +90,11 @@ jobs:
         working-directory: frontend
         env:
           JOCKY_CLI: ${{ github.workspace }}/target/debug/jocky-cli
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-test-results
+          path: frontend/test-results
   compose:
     runs-on: ubuntu-latest
     timeout-minutes: 20

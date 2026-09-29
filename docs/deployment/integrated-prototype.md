@@ -30,6 +30,11 @@ and `npm --prefix frontend run dev`. For existing deployments run
 `cd backend` then `python -m alembic upgrade head` before startup. A compatibility
 check also adds the nullable registry reference to old local SQLite schemas.
 
+With the same DATABASE_URL, `python scripts/create_user.py recipient@example.test`
+provisions another analyst for custody transfers. Add `--role admin` for the audit
+viewer. Passwords are prompted, not passed in command-line arguments. Provisioning
+requires local database access; there is no public self-registration endpoint.
+
 ## Demo and tests
 
 `python scripts/demo_e2e.py` creates an isolated temporary workspace, nine

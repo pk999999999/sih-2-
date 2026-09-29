@@ -147,3 +147,30 @@ def test_rate_limit():
     with TestClient(app) as client:
         for _ in range(20): assert client.post("/api/auth/login").status_code == 404
         assert client.post("/api/auth/login").status_code == 429
+
+
+def test_register_rejects_preexisting_tamper(workspace):
+    from app import storage
+    case, evidence = collect(workspace)
+    storage.put_object(f"{case['id']}/{evidence['job_id']}.json", b'{"tampered":true}')
+    response = workspace.client.post("/api/blockchain/register", headers=workspace.analyst, json={"evidence_id":evidence["id"]})
+    assert response.status_code == 409
+    assert workspace.client.get("/api/blockchain/records", headers=workspace.analyst).json() == []
+
+
+def test_legacy_migration(tmp_path):
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import inspect, text
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0002_registry.py"
+    spec = importlib.util.spec_from_file_location("registry_migration", path)
+    migration = importlib.util.module_from_spec(spec); spec.loader.exec_module(migration)
+    engine = create_engine("sqlite:///" + (tmp_path / "legacy.db").as_posix())
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE evidence (id VARCHAR(36) PRIMARY KEY)"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            migration.upgrade()
+        assert "blockchain_tx_id" in {c["name"] for c in inspect(connection).get_columns("evidence")}
+        assert {"findings", "custody_events", "blockchain_records", "audit_logs"}.issubset(inspect(connection).get_table_names())
+    engine.dispose()

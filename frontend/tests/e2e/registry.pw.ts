@@ -1,17 +1,18 @@
 import { expect, test } from '@playwright/test'
+const apiUrl = `http://127.0.0.1:${process.env.E2E_API_PORT || '8000'}`
 
 test('registration, verification, custody, findings and case details', async ({ page, request }) => {
-  const login = await request.post('http://127.0.0.1:8000/api/auth/login', { data:{email:'analyst@jocky.local',password:'jocky-demo'} })
+  const login = await request.post(`${apiUrl}/api/auth/login`, { data:{email:'analyst@jocky.local',password:'jocky-demo'} })
   const token = (await login.json()).access_token
   const headers = { Authorization:`Bearer ${token}` }, agentHeaders = { Authorization:'Bearer dev-agent-key' }
   const agent = `browser-${Date.now()}`
-  await request.post('http://127.0.0.1:8000/api/agent/register', { headers:agentHeaders, data:{id:agent,hostname:agent,platform:'mock'} })
-  const created = await request.post('http://127.0.0.1:8000/api/investigations', { headers,data:{title:'Browser registry case',agent_ids:[agent]} })
+  await request.post(`${apiUrl}/api/agent/register`, { headers:agentHeaders, data:{id:agent,hostname:agent,platform:'mock'} })
+  const created = await request.post(`${apiUrl}/api/investigations`, { headers,data:{title:'Browser registry case',agent_ids:[agent]} })
   const investigation = await created.json()
-  const job = await (await request.get(`http://127.0.0.1:8000/api/agent/${agent}/next`, {headers:agentHeaders})).json()
-  await request.post(`http://127.0.0.1:8000/api/agent/${agent}/jobs/${job.id}/complete`, {headers:agentHeaders,data:{payload:{hostname:agent,mock:true}}})
-  const evidence = (await (await request.get(`http://127.0.0.1:8000/api/evidence?investigation_id=${investigation.id}`, {headers})).json())[0]
-  await request.post('http://127.0.0.1:8000/api/findings', {headers,data:{investigation_id:investigation.id,category:'process',severity:'HIGH',title:'Possible mining process',description:'Synthetic indicator; requires corroboration',evidence_ids:[evidence.id],confidence:0.75}})
+  const job = await (await request.get(`${apiUrl}/api/agent/${agent}/next`, {headers:agentHeaders})).json()
+  await request.post(`${apiUrl}/api/agent/${agent}/jobs/${job.id}/complete`, {headers:agentHeaders,data:{payload:{hostname:agent,mock:true}}})
+  const evidence = (await (await request.get(`${apiUrl}/api/evidence?investigation_id=${investigation.id}`, {headers})).json())[0]
+  await request.post(`${apiUrl}/api/findings`, {headers,data:{investigation_id:investigation.id,category:'process',severity:'HIGH',title:'Possible mining process',description:'Synthetic indicator; requires corroboration',evidence_ids:[evidence.id],confidence:0.75}})
   await page.goto('/')
   await page.evaluate(value => sessionStorage.setItem('jocky-token', value), token)
   await page.reload()

@@ -56,6 +56,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mock_mode_cannot_read_real_files_or_process_modules() {
+        assert!(invoke_mock("filesystem.hash", &[Value::String("Cargo.toml".into())]).is_err());
+        assert!(invoke_mock("process.modules", &[serde_json::json!(1)]).is_err());
+        assert_eq!(invoke_mock("process.list", &[]).unwrap().as_array().unwrap().len(), 15);
+    }
+
+    #[test]
     fn authorized_file_and_log_collection() {
         let root = std::env::current_dir().unwrap();
         std::env::set_var("JOCKY_READ_ROOTS", &root);

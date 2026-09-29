@@ -1,17 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { CheckCircle2, AlertTriangle, X, ArrowRightLeft, Download, Play, Check, Hammer } from 'lucide-react'
-import Editor, { loader } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor/editor/editor.api.js'
-import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+import type { EditorProps } from '@monaco-editor/react'
 import { api, type Evidence, type Finding, type BlockchainRecord, type Verification, type CustodyEvent, type CaseDetail, type EditorResult, type Report } from './services/api'
 
-self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
-loader.config({ monaco })
-monaco.languages.register({ id: 'jocky' })
-monaco.languages.setMonarchTokensProvider('jocky', { tokenizer: { root: [
-  [/\b(investigation|target|host|agent|collect|as|analyze|where|contains|equals|report|include|true|false)\b/, 'keyword'],
-  [/"([^"\\]|\\.)*"/, 'string'], [/\/\/.*$/, 'comment'], [/\b\d+\b/, 'number'],
-] } })
+const LazyMonaco = lazy(() => import('./MonacoSurface'))
+function Editor(props: EditorProps) { return <Suspense fallback={<p role="status">Loading editor...</p>}><LazyMonaco {...props} /></Suspense> }
 
 export function Dialog({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
   useEffect(() => { const listener = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }; window.addEventListener('keydown', listener); return () => window.removeEventListener('keydown', listener) }, [close])
