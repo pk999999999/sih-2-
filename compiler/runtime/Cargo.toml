@@ -13,5 +13,6 @@ anyhow.workspace = true
 jocky-ast = { path = "../ast" }
 jocky-ir = { path = "../ir" }
 jocky-stdlib = { path = "../../stdlib" }
+jocky-analysis = { path = "../analysis" }
 serde_json.workspace = true
 time.workspace = true

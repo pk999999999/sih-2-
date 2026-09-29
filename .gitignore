@@ -19,3 +19,7 @@ test-results/
 evidence/
 .cache/
 *.tsbuildinfo
+blockchain/deployment.json
+output/
+tmp/
+.demo/

@@ -1,0 +1,13 @@
+investigation "Synthetic endpoint triage" {
+  target host("localhost")
+  collect system.info() as sys
+  collect process.list() as processes
+  collect network.connections() as connections
+  collect logs.journal() as events
+  report "Mock triage" {
+    include sys
+    include processes
+    include connections
+    include events
+  }
+}

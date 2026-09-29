@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, Float, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -66,6 +66,7 @@ class Evidence(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     details: Mapped[dict] = mapped_column(JSON, default=dict)
+    blockchain_tx_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
 
 class Report(Base):
@@ -75,3 +76,51 @@ class Report(Base):
     title: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     content: Mapped[dict] = mapped_column(JSON)
+
+
+class Finding(Base):
+    __tablename__ = "findings"
+    __table_args__ = (CheckConstraint("confidence >= 0 AND confidence <= 1"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    investigation_id: Mapped[str] = mapped_column(ForeignKey("investigations.id"), index=True)
+    category: Mapped[str] = mapped_column(String(50))
+    severity: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    evidence_ids: Mapped[list] = mapped_column(JSON, default=list)
+    confidence: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CustodyEvent(Base):
+    __tablename__ = "custody_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    evidence_id: Mapped[str] = mapped_column(ForeignKey("evidence.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(30))
+    from_entity: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    to_entity: Mapped[str] = mapped_column(String(100))
+    blockchain_tx_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class BlockchainRecord(Base):
+    __tablename__ = "blockchain_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    evidence_id: Mapped[str] = mapped_column(ForeignKey("evidence.id"), unique=True)
+    sha256: Mapped[str] = mapped_column(String(64))
+    blockchain_tx_id: Mapped[str] = mapped_column(String(100))
+    verification_status: Mapped[str] = mapped_column(String(30), default="UNVERIFIED")
+    mode: Mapped[str] = mapped_column(String(10))
+    custodian: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    actor_id: Mapped[str] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(80))
+    resource_id: Mapped[str] = mapped_column(String(100))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)

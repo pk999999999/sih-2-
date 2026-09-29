@@ -11,11 +11,13 @@ use time::OffsetDateTime;
 pub struct Runtime {
     bindings: BTreeMap<String, Value>,
     reports: Vec<Value>,
+    findings: Vec<Value>,
 }
 
 impl Runtime {
     pub fn execute(&mut self, ir: &IrProgram) -> Result<Value> {
         self.reports.clear();
+        self.findings.clear();
         for investigation in &ir.investigations {
             self.begin(&investigation.target)?;
             for op in &investigation.ops {
@@ -26,7 +28,7 @@ impl Runtime {
     }
 
     pub fn begin(&mut self, target: &Target) -> Result<()> {
-        let hostname = jocky_stdlib::system::info()?
+        let hostname = jocky_stdlib::invoke("system.info", &[])?
             .get("hostname").and_then(Value::as_str).unwrap_or("").to_string();
         match target {
             Target::Host(id) if id.eq_ignore_ascii_case("localhost")
@@ -50,6 +52,10 @@ impl Runtime {
                 }).collect::<Result<Vec<_>>>()?;
                 let value = jocky_stdlib::invoke(capability, &resolved)
                     .with_context(|| format!("collect {capability} as {binding}"))?;
+                for mut finding in jocky_analysis::analyze(capability, &value) {
+                    finding["binding"] = json!(binding);
+                    self.findings.push(finding);
+                }
                 self.bindings.insert(binding.clone(), value);
             }
             IrOp::Filter { source, destination, predicate } => {
@@ -80,7 +86,8 @@ impl Runtime {
     }
 
     pub fn output(&self) -> Value {
-        json!({ "reports": self.reports })
+        json!({ "reports": self.reports, "findings": self.findings,
+            "mock": std::env::var("JOCKY_MOCK_MODE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")) })
     }
 }
 

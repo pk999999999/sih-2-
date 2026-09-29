@@ -25,7 +25,7 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
-    Run { file: PathBuf },
+    Run { file: PathBuf, #[arg(long)] mock: bool },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -45,7 +45,8 @@ fn main() -> anyhow::Result<()> {
                 other => anyhow::bail!("unknown output format: {other}"),
             }
         }
-        Command::Run { file } => {
+        Command::Run { file, mock } => {
+            if mock { std::env::set_var("JOCKY_MOCK_MODE", "true"); }
             let program = load_checked(&file)?;
             let ir = jocky_ir::lower(&program);
             let mut runtime = jocky_runtime::Runtime::default();

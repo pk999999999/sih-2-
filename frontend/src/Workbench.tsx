@@ -1,0 +1,74 @@
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { CheckCircle2, AlertTriangle, X, ArrowRightLeft, Download, Play, Check, Hammer } from 'lucide-react'
+import Editor, { loader } from '@monaco-editor/react'
+import * as monaco from 'monaco-editor/editor/editor.api.js'
+import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+import { api, type Evidence, type Finding, type BlockchainRecord, type Verification, type CustodyEvent, type CaseDetail, type EditorResult, type Report } from './services/api'
+
+self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
+loader.config({ monaco })
+monaco.languages.register({ id: 'jocky' })
+monaco.languages.setMonarchTokensProvider('jocky', { tokenizer: { root: [
+  [/\b(investigation|target|host|agent|collect|as|analyze|where|contains|equals|report|include|true|false)\b/, 'keyword'],
+  [/"([^"\\]|\\.)*"/, 'string'], [/\/\/.*$/, 'comment'], [/\b\d+\b/, 'number'],
+] } })
+
+export function Dialog({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
+  useEffect(() => { const listener = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }; window.addEventListener('keydown', listener); return () => window.removeEventListener('keydown', listener) }, [close])
+  return <div className="modal-backdrop"><section className="modal preview" role="dialog" aria-modal="true" aria-label={title}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" title="Close" aria-label="Close" onClick={close}><X size={18} /></button></div>{children}</section></div>
+}
+
+export function FindingsTable({ findings, onSelect }: { findings: Finding[]; onSelect: (f: Finding) => void }) {
+  return <div className="table-wrap"><table><thead><tr><th>Finding</th><th>Category</th><th>Severity</th><th>Confidence</th></tr></thead><tbody>{findings.map(f => <tr key={f.id}><td><button className="text-button wrap" onClick={() => onSelect(f)}>{f.title}</button></td><td>{f.category}</td><td><span className={`status ${f.severity}`}>{f.severity}</span></td><td><progress max={1} value={f.confidence} aria-label={`Confidence ${Math.round(f.confidence * 100)} percent`} /> {Math.round(f.confidence * 100)}%</td></tr>)}</tbody></table>{!findings.length && <p className="empty">No matching findings</p>}</div>
+}
+
+export function FindingsPage({ token }: { token: string }) {
+  const [rows, setRows] = useState<Finding[]>([]), [error, setError] = useState('')
+  const [severity, setSeverity] = useState(''), [category, setCategory] = useState(''), [search, setSearch] = useState(''), [selected, setSelected] = useState<Finding | null>(null)
+  useEffect(() => { let live = true; const refresh = () => api.findings(token).then(value => { if (live) setRows(value) }).catch(e => { if (live) setError(e.message) }); void refresh(); const id = setInterval(refresh, 15000); return () => { live = false; clearInterval(id) } }, [token])
+  return <><div className="workbench-toolbar"><input aria-label="Search findings" placeholder="Search findings" value={search} onChange={e => setSearch(e.target.value)} /><select aria-label="Severity" value={severity} onChange={e => setSeverity(e.target.value)}><option value="">All severities</option>{['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(s => <option key={s}>{s}</option>)}</select><select aria-label="Category" value={category} onChange={e => setCategory(e.target.value)}><option value="">All categories</option>{['process', 'network', 'logs', 'filesystem', 'system', 'other'].map(c => <option key={c}>{c}</option>)}</select></div>{error && <p role="alert" className="error">{error}</p>}<FindingsTable findings={rows.filter(f => (!severity || f.severity === severity) && (!category || f.category === category) && `${f.title} ${f.description}`.toLowerCase().includes(search.toLowerCase()))} onSelect={setSelected} />{selected && <FindingDialog finding={selected} close={() => setSelected(null)} />}</>
+}
+
+function FindingDialog({ finding: f, close }: { finding: Finding; close: () => void }) {
+  return <Dialog title={f.title} close={close}><span className={`status ${f.severity}`}>{f.severity}</span><p className="detail-text">{f.description}</p><p>Confidence: {Math.round(f.confidence * 100)}%</p><h3>Evidence</h3>{f.evidence_ids.map(id => <p className="mono wrap" key={id}>{id}</p>)}</Dialog>
+}
+
+export function BlockchainPage({ token, evidence, refresh }: { token: string; evidence: Evidence[]; refresh: () => Promise<void> }) {
+  const [records, setRecords] = useState<BlockchainRecord[]>([]), [result, setResult] = useState<Verification | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState('')
+  const load = useCallback(() => api.blockchainRecords(token).then(setRecords).catch(e => setError(e.message)), [token])
+  useEffect(() => { void load() }, [load, evidence])
+  async function act(id: string, registered: boolean) { setBusy(id); setError(''); try { if (registered) setResult(await api.verifyEvidence(token, id)); else await api.registerEvidence(token, id); await load(); await refresh() } catch (e) { setError((e as Error).message) } finally { setBusy('') } }
+  return <>{error && <p role="alert" className="error">{error}</p>}<div className="table-wrap"><table><thead><tr><th>Evidence</th><th>Registry</th><th>SHA-256 / Transaction</th><th>Last verification</th><th></th></tr></thead><tbody>{evidence.map(e => { const record = records.find(r => r.evidence_id === e.id); return <tr key={e.id}><td><strong>{e.capability}</strong><small>{e.id}</small></td><td>{record?.mode === 'mock' ? 'MOCK / simulated' : record?.mode || 'Unregistered'}</td><td className="mono hash" title={record?.blockchain_tx_id}>{record?.sha256 || e.sha256}<small>{record?.blockchain_tx_id}</small></td><td><span className={`status ${record?.verification_status}`}>{record?.verification_status || 'UNREGISTERED'}</span>{record?.verified_at && <small>{new Date(record.verified_at).toLocaleString()}</small>}</td><td><button className="secondary" disabled={busy === e.id} onClick={() => void act(e.id, !!record)}><CheckCircle2 size={15} />{record ? 'Verify' : 'Register'}</button></td></tr> })}</tbody></table>{!evidence.length && <p className="empty">No evidence collected</p>}</div>{result && <Dialog title="Evidence verification" close={() => setResult(null)}><div className={`verification ${result.status}`} >{result.status === 'VERIFIED' ? <CheckCircle2 size={28} /> : <AlertTriangle size={28} />}<strong>{result.status}</strong></div><p className="detail-text">Registry: {result.mode === 'mock' ? 'Mock simulation' : 'EVM'}</p><h3>Registered SHA-256</h3><p className="mono wrap">{result.registered_sha256}</p><h3>Current object SHA-256</h3><p className="mono wrap">{result.actual_sha256}</p><h3>Collection metadata SHA-256</h3><p className="mono wrap">{result.metadata_sha256}</p></Dialog>}</>
+}
+
+export function CustodyPage({ token, evidence }: { token: string; evidence: Evidence[] }) {
+  const [id, setId] = useState(evidence[0]?.id || ''), [events, setEvents] = useState<CustodyEvent[]>([]), [records, setRecords] = useState<BlockchainRecord[]>([])
+  const [recipients, setRecipients] = useState<{id:string;email:string}[]>([]), [recipient, setRecipient] = useState(''), [show, setShow] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  const load = useCallback(async () => { if (!id) return; try { const [history, rows] = await Promise.all([api.custodyHistory(token, id), api.blockchainRecords(token)]); setEvents(history); setRecords(rows) } catch (e) { setError((e as Error).message) } }, [id, token])
+  useEffect(() => { if (!id && evidence.length) setId(evidence[0].id) }, [evidence, id])
+  useEffect(() => { void load() }, [load])
+  const record = records.find(r => r.evidence_id === id)
+  async function transfer() { if (!record) return; setBusy(true); try { await api.transferCustody(token, id, record.custodian, recipient); setShow(false); setError(''); await load() } catch (e) { setError((e as Error).message) } finally { setBusy(false) } }
+  return <><div className="workbench-toolbar"><select aria-label="Evidence" value={id} onChange={e => setId(e.target.value)}><option value="">Select evidence</option>{evidence.map(e => <option key={e.id} value={e.id}>{e.capability} / {e.details.agent_id} / {e.id}</option>)}</select><button className="primary" disabled={!record} onClick={() => { setShow(true); void api.custodyRecipients(token).then(setRecipients).catch(e => setError(e.message)) }}><ArrowRightLeft size={16} />Transfer custody</button></div>{error && <p className="error" role="alert">{error}</p>}<ol className="custody-timeline">{events.map(event => <li key={event.id} className={event.event_type}><time>{new Date(event.created_at).toLocaleString()}</time><h3>{event.event_type}</h3><p className="wrap">{event.from_entity || 'Origin'} &rarr; {event.to_entity}</p>{event.blockchain_tx_id && <p className="mono wrap">{event.blockchain_tx_id}</p>}</li>)}</ol>{!events.length && <p className="empty">No custody events</p>}{show && <Dialog title="Transfer custody" close={() => setShow(false)}><form className="form-stack" onSubmit={e => { e.preventDefault(); void transfer() }}><p className="mono wrap">Current custodian: {record?.custodian}</p><label>Recipient<select value={recipient} onChange={e => setRecipient(e.target.value)} required><option value="">Choose recipient</option>{recipients.filter(r => r.id !== record?.custodian).map(r => <option key={r.id} value={r.id}>{r.email}</option>)}</select></label><button className="primary" disabled={busy || !recipient}><ArrowRightLeft size={16} />Transfer</button></form></Dialog>}</>
+}
+
+export function CaseDialog({ token, id, close }: { token: string; id: string; close: () => void }) {
+  const [data, setData] = useState<CaseDetail | null>(null), [error, setError] = useState(''), [finding, setFinding] = useState<Finding | null>(null)
+  useEffect(() => { let live = true; const load = () => api.caseDetail(token, id).then(d => { if (live) setData(d) }).catch(e => { if (live) setError(e.message) }); void load(); const timer = setInterval(load, 5000); return () => { live = false; clearInterval(timer) } }, [token, id])
+  return <Dialog title={data?.investigation.title || 'Investigation'} close={close}>{error && <p className="error">{error}</p>}{data && <><p>{data.investigation.description}</p><h3>Machine comparison</h3><div className="table-wrap"><table><thead><tr><th>Machine</th><th>Status</th><th>Jobs</th><th>Evidence</th><th>Findings</th></tr></thead><tbody>{data.agents.map(a => { const jobs = data.jobs.filter(j => j.agent_id === a.id), items = data.evidence.filter(e => e.details.agent_id === a.id); const status = jobs.some(j => j.status === 'failed') ? 'failed' : jobs.every(j => j.status === 'completed') ? 'completed' : jobs.some(j => j.status === 'running') ? 'running' : 'queued'; return <tr key={a.id}><td>{a.hostname}</td><td><span className={`status ${status}`}>{status}</span></td><td>{jobs.length}</td><td>{items.length}</td><td>{data.findings.filter(f => f.evidence_ids.some(id => items.some(e => e.id === id))).length}</td></tr> })}</tbody></table></div><h3>Collection jobs</h3>{data.jobs.map(j => <p className="detail-text" key={j.id}>{j.agent_id} / {j.capability} <span className={`status ${j.status}`}>{j.status}</span>{j.error && <span className="error"> {j.error}</span>}</p>)}<h3>Evidence inventory</h3>{data.evidence.map(e => <p className="detail-text wrap" key={e.id}>{e.capability} / {e.details.agent_id}<br /><span className="mono">{e.sha256}</span></p>)}<h3>Findings</h3><FindingsTable findings={data.findings} onSelect={setFinding} /></>}{finding && <FindingDialog finding={finding} close={() => setFinding(null)} />}</Dialog>
+}
+
+const templates: Record<string, string> = {
+  'Endpoint triage': 'investigation "Mock endpoint triage" {\n  target host("localhost")\n  collect system.info() as sys\n  collect process.list() as processes\n  collect network.connections() as connections\n  report "Triage" {\n    include sys\n    include processes\n    include connections\n  }\n}',
+  'Failed logins': 'investigation "Mock log review" {\n  target host("localhost")\n  collect logs.journal() as events\n  report "Log review" {\n    include events\n  }\n}',
+}
+export function EditorPage({ token }: { token: string }) {
+  const [source, setSource] = useState(templates['Endpoint triage']), [template, setTemplate] = useState('Endpoint triage'), [tab, setTab] = useState<'Output' | 'Errors' | 'IR'>('Output'), [result, setResult] = useState<EditorResult | null>(null), [busy, setBusy] = useState(false)
+  async function run(action: 'check' | 'run' | 'compile') { setBusy(true); try { const value = await api.editor(token, action, source); setResult(value); setTab(!value.success ? 'Errors' : action === 'compile' ? 'IR' : 'Output') } catch (e) { setResult({ success:false, output:'', ir:'', errors:(e as Error).message, mode:'mock' }); setTab('Errors') } finally { setBusy(false) } }
+  return <><div className="workbench-toolbar"><select aria-label="Template" value={template} onChange={e => { setTemplate(e.target.value); setSource(templates[e.target.value]) }}>{Object.keys(templates).map(t => <option key={t}>{t}</option>)}</select><span className="status">MOCK RUN / LLVM BUILD</span><button className="secondary" disabled={busy} onClick={() => void run('check')}><Check size={16} />CHECK</button><button className="primary" disabled={busy} onClick={() => void run('run')}><Play size={16} />RUN</button><button className="secondary" disabled={busy} onClick={() => void run('compile')}><Hammer size={16} />BUILD</button></div><div className="editor-surface"><Editor height="390px" language="jocky" value={source} onChange={v => setSource(v || '')} options={{ minimap:{enabled:false}, fontSize:13, automaticLayout:true, scrollBeyondLastLine:false, wordWrap:'on' }} /></div><div role="tablist" className="workbench-toolbar">{(['Output', 'Errors', 'IR'] as const).map(t => <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'primary' : 'secondary'} onClick={() => setTab(t)}>{t}</button>)}{busy && <span role="status">Running...</span>}</div><pre className="editor-output" role="tabpanel">{result?.[tab === 'Output' ? 'output' : tab === 'IR' ? 'ir' : 'errors'] || ''}</pre></>
+}
+
+export function PdfDownloads({ token, reports }: { token: string; reports: Report[] }) {
+  const [error, setError] = useState('')
+  return <div className="workbench-toolbar">{reports.map(r => <button key={r.id} className="secondary wrap" onClick={() => void api.reportPdf(token, r.id).catch(e => setError(e.message))}><Download size={16} />{r.title}.pdf</button>)}{error && <p className="error">{error}</p>}</div>
+}

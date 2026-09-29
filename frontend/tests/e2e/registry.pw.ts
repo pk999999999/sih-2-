@@ -1,0 +1,50 @@
+import { expect, test } from '@playwright/test'
+
+test('registration, verification, custody, findings and case details', async ({ page, request }) => {
+  const login = await request.post('http://127.0.0.1:8000/api/auth/login', { data:{email:'analyst@jocky.local',password:'jocky-demo'} })
+  const token = (await login.json()).access_token
+  const headers = { Authorization:`Bearer ${token}` }, agentHeaders = { Authorization:'Bearer dev-agent-key' }
+  const agent = `browser-${Date.now()}`
+  await request.post('http://127.0.0.1:8000/api/agent/register', { headers:agentHeaders, data:{id:agent,hostname:agent,platform:'mock'} })
+  const created = await request.post('http://127.0.0.1:8000/api/investigations', { headers,data:{title:'Browser registry case',agent_ids:[agent]} })
+  const investigation = await created.json()
+  const job = await (await request.get(`http://127.0.0.1:8000/api/agent/${agent}/next`, {headers:agentHeaders})).json()
+  await request.post(`http://127.0.0.1:8000/api/agent/${agent}/jobs/${job.id}/complete`, {headers:agentHeaders,data:{payload:{hostname:agent,mock:true}}})
+  const evidence = (await (await request.get(`http://127.0.0.1:8000/api/evidence?investigation_id=${investigation.id}`, {headers})).json())[0]
+  await request.post('http://127.0.0.1:8000/api/findings', {headers,data:{investigation_id:investigation.id,category:'process',severity:'HIGH',title:'Possible mining process',description:'Synthetic indicator; requires corroboration',evidence_ids:[evidence.id],confidence:0.75}})
+  await page.goto('/')
+  await page.evaluate(value => sessionStorage.setItem('jocky-token', value), token)
+  await page.reload()
+  await page.getByRole('button', {name:'Blockchain',exact:true}).click()
+  const row = page.getByRole('row').filter({hasText:evidence.id})
+  await row.getByRole('button', {name:'Register',exact:true}).click()
+  await row.getByRole('button', {name:'Verify',exact:true}).click()
+  const dialog = page.getByRole('dialog', {name:'Evidence verification'})
+  await expect(dialog.getByText('VERIFIED', {exact:true})).toBeVisible()
+  await expect(dialog.getByText('Registry: Mock simulation')).toBeVisible()
+  await page.screenshot({path:'test-results/registry-desktop.png',fullPage:true})
+  await dialog.getByRole('button', {name:'Close'}).click()
+  await page.getByRole('button', {name:'Custody',exact:true}).click()
+  await page.getByLabel('Evidence', {exact:true}).selectOption(evidence.id)
+  await expect(page.locator('.custody-timeline li')).toHaveCount(2)
+  await page.getByRole('button', {name:'Findings',exact:true}).click()
+  await page.getByLabel('Search findings').fill('Possible mining')
+  await page.getByLabel('Severity', {exact:true}).selectOption('HIGH')
+  await expect(page.getByRole('button', {name:'Possible mining process'}).first()).toBeVisible()
+  await page.setViewportSize({width:390,height:844})
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.screenshot({path:'test-results/findings-mobile.png',fullPage:true})
+  await page.getByRole('button', {name:'Investigations',exact:true}).click()
+  await page.getByRole('button', {name:'Browser registry case',exact:true}).first().click()
+  await expect(page.getByRole('heading', {name:'Machine comparison'})).toBeVisible()
+})
+
+test('editor loads local Monaco and checks source', async ({page}) => {
+  await page.goto('/')
+  await page.getByLabel('Password').fill('jocky-demo')
+  await page.getByRole('button', {name:'Sign in',exact:true}).click()
+  await page.getByRole('button', {name:'Editor',exact:true}).click()
+  await expect(page.locator('.monaco-editor').first()).toBeVisible()
+  await page.getByRole('button', {name:'CHECK',exact:true}).click()
+  await expect(page.getByRole('tabpanel')).toContainText(/ok:|compiler not installed/i)
+})

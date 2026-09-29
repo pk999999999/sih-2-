@@ -11,6 +11,37 @@ This prototype includes:
 - A React + TypeScript dashboard.
 - Docker Compose for PostgreSQL, S3-compatible SeaweedFS storage, backend, agent, and frontend.
 - Tests, examples, and documentation.
+- Hash-only Solidity registry, persistent mock/Web3 clients, custody history and audit.
+- Findings, multi-machine case comparison, mock-only Monaco editor and PDF reports.
+
+## Integrated Architecture
+
+```mermaid
+flowchart LR
+  DSL[JOCKY source] --> Compiler[Rust compiler / LLVM]
+  Compiler --> Runtime[Runtime + analysis + forensic stdlib]
+  Runtime --> Mock[Deterministic mock provider]
+  UI[React dashboard / Monaco] --> API[FastAPI / JWT / audit]
+  Agents[Windows + Linux agents] --> API
+  API --> DB[(PostgreSQL metadata)]
+  API --> Objects[(S3 evidence bytes)]
+  API --> Registry[Hash-only registry client]
+  Registry --> EVM[Solidity / local Ganache]
+  Registry --> Simulation[Persistent mock chain]
+  API --> PDF[PDF report snapshots]
+```
+
+Run `python scripts/demo_e2e.py` for an isolated three-machine tamper demo and
+`cargo run -p jocky-cli -- run examples/mock_investigation.jky --mock` for synthetic
+compiler output. The demo asserts PC-002 VERIFIED and PC-001 MISMATCH, and writes
+`output/pdf/demo-report.pdf`; it never modifies your running workspace.
+
+See [integrated setup](docs/deployment/integrated-prototype.md),
+[language specification](docs/language/specification.md),
+[API reference](docs/api/backend.md), [integrity model](docs/blockchain/evidence-integrity.md),
+[security review](docs/security/threat-model.md), and [production roadmap](ROADMAP.md).
+The web editor's BUILD action emits LLVM IR; the CLI builds native executables.
+Mock registry results are simulations, not independent blockchain attestations.
 
 ## Safety Scope
 

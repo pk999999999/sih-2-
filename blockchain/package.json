@@ -1,0 +1,1 @@
+{"name":"jocky-registry","private":true,"scripts":{"deploy":"node deploy.cjs","test":"node --test registry.test.cjs"},"dependencies":{"ethers":"^6.13.0","solc":"0.8.24"},"devDependencies":{"ganache":"7.9.2"}}

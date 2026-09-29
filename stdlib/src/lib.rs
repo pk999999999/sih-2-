@@ -11,6 +11,9 @@ pub mod system;
 pub mod timeline;
 
 pub fn invoke(capability: &str, args: &[Value]) -> Result<Value> {
+    if std::env::var("JOCKY_MOCK_MODE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")) {
+        return invoke_mock(capability, args);
+    }
     match (capability, args) {
         ("system.info", []) => system::info(),
         ("process.list", []) => process::list(),
@@ -30,6 +33,21 @@ pub fn invoke(capability: &str, args: &[Value]) -> Result<Value> {
         ("timeline.build", [value]) => timeline::build(value),
         ("reporting.summary", [value]) => reporting::summary(value),
         _ => bail!("unsupported capability or arguments: {capability}"),
+    }
+}
+
+/// Mock mode never falls back to reading the host, including file/log/module calls.
+pub fn invoke_mock(capability: &str, args: &[Value]) -> Result<Value> {
+    match (capability, args) {
+        ("system.info", []) => Ok(jocky_agent_mock::system_info()),
+        ("process.list", []) => Ok(jocky_agent_mock::processes()),
+        ("network.connections", []) => Ok(jocky_agent_mock::connections()),
+        ("logs.journal", []) | ("logs.windows_events", [Value::String(_)]) |
+        ("logs.read", [Value::String(_)]) | ("logs.syslog", [Value::String(_)]) => Ok(jocky_agent_mock::logs()),
+        ("hashing.sha256", [Value::String(value)]) => Ok(hashing::sha256(value)),
+        ("timeline.build", [value]) => timeline::build(value),
+        ("reporting.summary", [value]) => reporting::summary(value),
+        _ => bail!("capability unavailable in isolated mock mode: {capability}"),
     }
 }
 

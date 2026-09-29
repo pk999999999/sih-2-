@@ -13,6 +13,10 @@ from sqlalchemy.orm import Session
 from . import config, models, storage
 from .database import Base, SessionLocal, engine, get_db
 from .security import create_token, current_user, hash_password, require_agent, require_analyst, verify_password
+from .audit import audit
+from .extensions import router as extension_router
+from .editor import router as editor_router
+from .rate_limit import RateLimitMiddleware
 
 
 SAFE_CAPABILITIES = {"system.info", "process.list", "network.connections"}
@@ -21,6 +25,11 @@ SAFE_CAPABILITIES = {"system.info", "process.list", "network.connections"}
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    # Compatibility with pre-registry local databases. Deployment uses Alembic.
+    from sqlalchemy import inspect, text
+    if "blockchain_tx_id" not in {c["name"] for c in inspect(engine).get_columns("evidence")}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE evidence ADD COLUMN blockchain_tx_id VARCHAR(100)"))
     with SessionLocal() as db:
         user = db.scalar(select(models.User).where(models.User.email == config.DEMO_EMAIL))
         if user is None:
@@ -30,10 +39,13 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="JOCKY Investigation API", version="0.1.0", lifespan=lifespan)
+app.include_router(extension_router)
+app.include_router(editor_router)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["GET", "POST", "PATCH"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -46,6 +58,7 @@ class Login(BaseModel):
 class InvestigationCreate(BaseModel):
     title: str = Field(min_length=3, max_length=200)
     description: str = Field(default="", max_length=5000)
+    agent_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
 class InvestigationUpdate(BaseModel):
@@ -116,6 +129,7 @@ class EvidenceOut(PublicModel):
     size_bytes: int
     collected_at: datetime
     details: dict
+    blockchain_tx_id: str | None
 
 
 class ReportOut(PublicModel):
@@ -136,6 +150,8 @@ def login(body: Login, db: Session = Depends(get_db)):
     user = db.scalar(select(models.User).where(models.User.email == body.email))
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    audit(db, user.id, "auth.login", user.id)
+    db.commit()
     return {"access_token": create_token(user), "token_type": "bearer", "role": user.role}
 
 
@@ -146,8 +162,15 @@ def investigations(db: Session = Depends(get_db), _user: models.User = Depends(c
 
 @app.post("/api/investigations", response_model=InvestigationOut, status_code=201)
 def create_investigation(body: InvestigationCreate, db: Session = Depends(get_db), user: models.User = Depends(require_analyst)):
+    for agent_id in set(body.agent_ids):
+        if db.get(models.Agent, agent_id) is None:
+            raise HTTPException(404, "Agent not found")
     row = models.Investigation(title=body.title, description=body.description, owner_id=user.id)
     db.add(row)
+    db.flush()
+    for agent_id in sorted(set(body.agent_ids)):
+        db.add(models.Job(investigation_id=row.id, agent_id=agent_id, capability="system.info"))
+    audit(db, user.id, "investigation.create", row.id, agents=body.agent_ids)
     db.commit()
     db.refresh(row)
     return row
@@ -159,6 +182,7 @@ def update_investigation(investigation_id: str, body: InvestigationUpdate, db: S
     if row is None:
         raise HTTPException(status_code=404, detail="Investigation not found")
     row.status = body.status
+    audit(db, _user.id, "investigation.update", row.id, status=body.status)
     db.commit()
     db.refresh(row)
     return row
@@ -201,6 +225,8 @@ def create_job(body: JobCreate, db: Session = Depends(get_db), _user: models.Use
         raise HTTPException(status_code=404, detail="Agent not found")
     row = models.Job(**body.model_dump())
     db.add(row)
+    db.flush()
+    audit(db, _user.id, "job.create", row.id)
     db.commit()
     db.refresh(row)
     return row
@@ -242,8 +268,13 @@ def complete_job(agent_id: str, job_id: str, body: Completion, db: Session = Dep
         )
         storage.put_object(evidence.object_key, data)
         db.add(evidence)
+        db.flush()
+        owner = db.get(models.Investigation, row.investigation_id).owner_id
+        db.add(models.CustodyEvent(evidence_id=evidence.id, event_type="collection", from_entity=agent_id, to_entity=owner))
+        audit(db, agent_id, "evidence.collect", evidence.id, sha256=evidence.sha256)
         row.status = "completed"
     row.completed_at = models.now()
+    audit(db, agent_id, "job.complete", row.id, status=row.status)
     db.commit()
     db.refresh(row)
     return row
@@ -287,6 +318,8 @@ def create_report(body: ReportCreate, db: Session = Depends(get_db), _user: mode
     }
     row = models.Report(investigation_id=body.investigation_id, title=body.title, content=content)
     db.add(row)
+    db.flush()
+    audit(db, _user.id, "report.create", row.id)
     db.commit()
     db.refresh(row)
     return row

@@ -12,6 +12,7 @@ sha2.workspace = true
 time = { workspace = true, features = ["parsing"] }
 roxmltree = "0.20"
 cap-std = "4"
+jocky-agent-mock = { path = "../agent/mock" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 jocky-agent-linux = { path = "../agent/linux" }

@@ -8,10 +8,12 @@ members = [
   "compiler/ir",
   "compiler/codegen",
   "compiler/runtime",
+  "compiler/analysis",
   "compiler/cli",
   "compiler/native-runner",
   "stdlib",
   "agent/common",
+  "agent/mock",
   "agent/windows",
   "agent/linux",
   "agent/runner"
